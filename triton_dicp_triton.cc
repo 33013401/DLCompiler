@@ -5,7 +5,9 @@
 #include "dicp/AutoBlockify/Passes.h"
 #include "dicp/Dialect/CommonIR/Passes.h"
 #include "dicp/Dialect/TritonDicp/IR/TritonDicpDialect.h"
+#if !DICP_USE_WAFER_TRITON_TO_LINALG
 #include "dicp/DiscreteMaskAccessConversion/Passes.h"
+#endif
 #include "dicp/TritonAffinityOpt/Passes.h"
 #include "dicp/TritonToAnnotation/Passes.h"
 #include "dicp/TritonToHFusion/Passes.h"
@@ -13,7 +15,9 @@
 #include "dicp/TritonToLLVM/Passes.h"
 #include "dicp/TritonToLinalg/Passes.h"
 #include "dicp/TritonToStructured/Passes.h"
+#if !DICP_USE_WAFER_TRITON_TO_LINALG
 #include "dicp/TritonToUnstructure/Passes.h"
+#endif
 
 #include "bishengir/Dialect/Annotation/IR/Annotation.h"
 #include "bishengir/Dialect/HACC/IR/HACC.h"
@@ -1195,6 +1199,7 @@ void init_triton_dicp_passes_ttir(py::module &&m) {
               enableMaskFallbackConversion, optimizeDynamicOffset));
         });
 
+#if !DICP_USE_WAFER_TRITON_TO_LINALG
   m.def("add_discrete_mask_access_conversion", [](mlir::PassManager &pm,
                                                   bool compileOn91095,
                                                   bool forceSimtTemplate,
@@ -1205,11 +1210,13 @@ void init_triton_dicp_passes_ttir(py::module &&m) {
     opts.enableSyncBlockLock = enableSyncBlockLock;
     pm.addPass(mlir::triton::createDiscreteMaskAccessConversionPass(opts));
   });
+#endif
 
   m.def("add_triton_to_annotation", [](mlir::PassManager &pm) {
     pm.addPass(mlir::triton::createTritonToAnnotationPass());
   });
 
+#if !DICP_USE_WAFER_TRITON_TO_LINALG
   m.def("add_triton_to_unstructure",
         [](mlir::PassManager &pm, bool compileOn91095, bool forceSimtTemplate) {
           TritonToUnstructureOptions opts;
@@ -1217,6 +1224,7 @@ void init_triton_dicp_passes_ttir(py::module &&m) {
           opts.forceSimtTemplate = forceSimtTemplate;
           pm.addPass(mlir::triton::createTritonToUnstructurePass(opts));
         });
+#endif
 
   m.def("add_triton_to_hivm", [](mlir::PassManager &pm) {
     pm.addPass(mlir::triton::createTritonToHIVMPass());
@@ -1230,17 +1238,28 @@ void init_triton_dicp_passes_ttir(py::module &&m) {
     pm.addPass(mlir::triton::createTritonToLLVMPass());
   });
 
+#if !DICP_USE_WAFER_TRITON_TO_LINALG
   m.def("add_bubble_up_operation", [](mlir::PassManager &pm) {
     pm.addPass(mlir::triton::createBubbleUpOperationPass());
   });
+#endif
 
   m.def("add_triton_to_linalg",
         [](mlir::PassManager &pm, bool globalKernel, bool namedOps,
            bool enableNd2nzOnVector, bool enableSelectAnalysis,
            bool compileOn91095) {
+  #if DICP_USE_WAFER_TRITON_TO_LINALG
+        (void)globalKernel;
+        (void)namedOps;
+        (void)enableNd2nzOnVector;
+        (void)enableSelectAnalysis;
+        (void)compileOn91095;
+        pm.addPass(mlir::triton::createTritonToLinalgPass());
+  #else
           pm.addPass(mlir::triton::createTritonToLinalgPass(
               globalKernel, namedOps, enableNd2nzOnVector, enableSelectAnalysis,
               compileOn91095));
+  #endif
         });
 
   m.def("add_ascend_npu_ir_legalize",

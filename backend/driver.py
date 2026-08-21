@@ -123,6 +123,27 @@ class DICUtils:
         self.get_device_properties = mod.get_device_properties
 
 
+class TXDAUtils:
+    def load_binary(self, name, kernel, shared_mem, device):
+        raise RuntimeError("Wafer hardware runtime support is not installed.")
+
+    def get_device_properties(self, device=None):
+        raise RuntimeError("Wafer hardware runtime support is not installed.")
+
+
+class SimulatorUtils:
+    def load_binary(self, name, kernel, shared_mem, device):
+        raise RuntimeError("Wafer simulator linking is deferred to the runtime migration.")
+
+    def get_device_properties(self, device=None):
+        return {"max_shared_mem": 3 * 1024 * 1024 - 2 * 0x10000}
+
+
+class TXDALauncher:
+    def __init__(self, src, metadata):
+        raise RuntimeError("Wafer launcher support is deferred to the runtime migration.")
+
+
 class DICPDriver(DriverBase):
     def __init__(self, target=None):
         if self.__initialized:
@@ -170,6 +191,19 @@ class DICPDriver(DriverBase):
             from .ascend_autotune_hooks import hook_autotune_for_ascend
 
             hook_autotune_for_ascend()
+        elif backend == "wafer":
+            self.target = "wafer"
+            if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
+                self.utils = SimulatorUtils()
+                self.get_current_device = lambda: 0
+                self.set_current_device = lambda device: None
+            else:
+                self.utils = TXDAUtils()
+                import torch
+
+                self.get_current_device = torch.txda.current_device
+                self.set_current_device = torch.txda.set_device
+            self.launcher_cls = TXDALauncher
         elif backend == "nvidia":
             from triton.backends.nvidia.driver import CudaLauncher, CudaUtils
 
@@ -186,17 +220,20 @@ class DICPDriver(DriverBase):
             self._cpu_driver = CPUDriver()
 
     def __new__(cls, target=None):
-        if not hasattr(cls, "instance"):
-            cls.instance = super(DICPDriver, cls).__new__(cls)
-            cls.instance.__initialized = False
-        return cls.instance
-
-    @staticmethod
-    def is_active():
-        return True
+        backend = target.backend if hasattr(target, "backend") else target
+        backend = str(backend) if backend else get_current_backend()
+        if not hasattr(cls, "instances"):
+            cls.instances = {}
+        if backend not in cls.instances:
+            instance = super(DICPDriver, cls).__new__(cls)
+            instance.__initialized = False
+            cls.instances[backend] = instance
+        return cls.instances[backend]
 
     @classmethod
-    def is_active(self):
+    def is_active(cls):
+        if get_current_backend() == "wafer":
+            return True
         try:
             current_backend = get_current_backend()
             if current_backend == "ascend":
@@ -222,7 +259,7 @@ class DICPDriver(DriverBase):
                     reset = "\x1b[0m"
                     warnings.warn(red + str(e_npucompiler) + reset)
                     return False
-            elif self.target == "muxi":
+            elif current_backend == "muxi":
                 import torch
 
                 return True
@@ -257,12 +294,16 @@ class DICPDriver(DriverBase):
             return ("maca", 0)
         elif self.target == "ascend":
             return ("ascend", 0)
+        elif self.target == "wafer":
+            return ("wafer", 0)
         elif self.target == "nvidia":
             capability = torch.cuda.get_device_capability(self.get_current_device())
             return ("cuda", capability)
         return ("dicp", 0)
 
     def get_current_stream(self, device):
+        if self.target == "wafer":
+            return None
         import torch
 
         if self.target == "mlu":
@@ -286,6 +327,8 @@ class DICPDriver(DriverBase):
         return None
 
     def get_current_device(self):
+        if self.target == "wafer":
+            return 0
         import torch
 
         # dicp doesn't have a device to return. Return something.
@@ -338,6 +381,8 @@ class DICPDriver(DriverBase):
             arch = self.utils.get_arch()
             warp_size = 0
             return GPUTarget(backend, arch, warp_size)
+        elif self.target == "wafer":
+            return GPUTarget("wafer", "tx81", 32)
         elif self.target == "nvidia":
             device = self.get_current_device()
             capability = torch.cuda.get_device_capability(device)
