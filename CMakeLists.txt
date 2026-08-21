@@ -1,6 +1,9 @@
 set(DC_TRITON_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(DC_TRITON_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
+option(DICP_WAFER_COMBINED_BUILD
+  "Build DICP bindings against Wafer's selected shared lowering targets" OFF)
+
 set(DC_TRITON_INCLUDE_DIR "")
 set(DC_TRITON_LINK_DIR "")
 
@@ -58,7 +61,6 @@ if (TRITON_BUILD_PYTHON_MODULE)
     # DICP NPU pass libraries
     TritonToLinalg
     TritonToStructured
-    TritonToUnstructure
     TritonToHIVM
     TritonToAnnotation
     TritonToHFusion
@@ -67,7 +69,6 @@ if (TRITON_BUILD_PYTHON_MODULE)
     AutoBlockify
     AscendLegalize
     CommonIRTransforms
-    DiscreteMaskAccessConversion
     MLIRTritonNPUUtils
     TritonAffinityOpt
     TritonDicpIR

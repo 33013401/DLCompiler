@@ -1,0 +1,8 @@
+set(LLVM_TARGET_DEFINITIONS Passes.td)
+mlir_tablegen(Passes.h.inc -gen-pass-decls --name TritonToStructured)
+if(TARGET TritonToStructuredConversionPassIncGen)
+  add_public_tablegen_target(WaferTritonToStructuredConversionPassIncGen)
+  add_dependencies(TritonToStructuredConversionPassIncGen WaferTritonToStructuredConversionPassIncGen)
+else()
+  add_public_tablegen_target(TritonToStructuredConversionPassIncGen)
+endif()

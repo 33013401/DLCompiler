@@ -100,3 +100,16 @@ launcher_cxx11abi*
 
 # package
 backend/dicp_opt
+
+# Wafer migration artifacts
+third_party/wafer/build*/
+/triton/
+/wafer_env.sh
+/llvm22_env.sh
+/dist/
+/docs/
+**/dump[0-9]*/
+**/kernel_*.ll
+**/kernel_*.o
+**/kernel_*.so
+**/cmds.txt

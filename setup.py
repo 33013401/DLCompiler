@@ -19,22 +19,12 @@ from typing import List, NamedTuple, Optional
 from dataclasses import dataclass
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
+from setuptools.command.build_py import build_py
 from distutils.command.clean import clean
 from wheel.bdist_wheel import bdist_wheel
 
 root_dir = os.path.dirname(__file__)
 triton_dir = os.path.join(root_dir, "third_party/triton")
-
-def change_3rdparty_triton_path():
-    source_dir = os.path.join(root_dir, "../triton")
-    target_dir = os.path.join(root_dir, triton_dir)
-
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-
-    shutil.copytree(source_dir, target_dir)
-
-change_3rdparty_triton_path()
 
 
 # Taken from https://github.com/pytorch/pytorch/blob/master/tools/setup_helpers/env.py
@@ -354,6 +344,11 @@ class BuildExt(build_ext):
         super().finalize_options()
         self.inplace = False
 
+    def get_ext_fullpath(self, ext_name):
+        if ext_name == "triton._C.libtriton":
+            return os.path.join(self.build_lib, "triton", "_C", "libtriton.so")
+        return super().get_ext_fullpath(ext_name)
+
     def run(self):
         try:
             out = subprocess.check_output(["cmake", "--version"])
@@ -402,6 +397,16 @@ class BuildExt(build_ext):
             )
 
     def build_extension(self, ext):
+        prebuilt_dir = os.getenv("WAFER_PREBUILT_DIR")
+        if prebuilt_dir:
+            source = os.path.join(prebuilt_dir, "libtriton.so")
+            if not os.path.isfile(source):
+                raise FileNotFoundError(f"Prebuilt libtriton.so not found: {source}")
+            output = self.get_ext_fullpath(ext.name)
+            os.makedirs(os.path.dirname(output), exist_ok=True)
+            shutil.copy2(source, output)
+            return
+
         cmake_dir = get_cmake_dir()
         lit_dir = shutil.which("lit")
         ninja_dir = shutil.which("ninja")
@@ -469,6 +474,24 @@ class BuildExt(build_ext):
         self.install_extension()
 
 
+class BuildPy(build_py):
+    def run(self):
+        super().run()
+        prebuilt_dir = os.getenv("WAFER_PREBUILT_DIR")
+        if not prebuilt_dir:
+            return
+        source = os.path.join(prebuilt_dir, "wafer-opt")
+        if not os.path.isfile(source):
+            raise FileNotFoundError(f"Prebuilt wafer-opt not found: {source}")
+        output_dir = os.path.join(
+            self.build_lib, "triton", "backends", "dicp_triton", "bin"
+        )
+        os.makedirs(output_dir, exist_ok=True)
+        output = os.path.join(output_dir, "wafer-opt")
+        shutil.copy2(source, output)
+        os.chmod(output, 0o755)
+
+
 class BuildWheel(bdist_wheel):
     def run(self):
         bdist_wheel.run(self)
@@ -508,34 +531,48 @@ class BuildClean(clean):
         remove_directory(egginfo_dir)
 
 
-def get_language_extra_packages(backends):
-    packages = []
-    for backend in backends:
-        if backend.language_dir is None:
-            continue
+def get_language_extra_package_dirs(backends):
+    package_dirs = {}
+    language_dirs = [
+        backend.language_dir for backend in backends if backend.language_dir is not None
+    ]
+    wafer_language_dir = os.getenv("WAFER_LANGUAGE_DIR")
+    if wafer_language_dir:
+        wafer_language_dir = os.path.abspath(wafer_language_dir)
+        if not os.path.isdir(wafer_language_dir):
+            raise FileNotFoundError(
+                f"Wafer language directory not found: {wafer_language_dir}"
+            )
+        language_dirs.append(wafer_language_dir)
 
+    for language_dir in language_dirs:
         # Walk the `language` directory of each backend to enumerate
         # any subpackages, which will be added to `triton.language.extra`.
-        for dir, _, files in os.walk(backend.language_dir, followlinks=True):
+        for directory, _, files in os.walk(language_dir, followlinks=True):
             if (
                 not any(f for f in files if f.endswith(".py"))
-                or dir == backend.language_dir
+                or directory == language_dir
             ):
                 # Ignore directories with no python files.
                 # Also ignore the root directory which corresponds to
                 # "triton/language/extra".
                 continue
-            subpackage = os.path.relpath(dir, backend.language_dir)
+            subpackage = os.path.relpath(directory, language_dir)
             package = os.path.join("triton/language/extra", subpackage)
-            packages.append(package)
+            if package in package_dirs:
+                raise RuntimeError(f"Duplicate language package source: {package}")
+            package_dirs[package] = directory
 
-    return list(packages)
+    return package_dirs
+
+
+def get_language_extra_packages(backends):
+    return list(get_language_extra_package_dirs(backends))
 
 
 def get_packages(backends):
     packages = [
         "triton",
-        "triton/_C",
         "triton/compiler",
         "triton/language",
         "triton/language/extra",
@@ -545,12 +582,6 @@ def get_packages(backends):
     ]
     packages += [f"triton/backends/{backend.name}" for backend in backends]
     packages += get_language_extra_packages(backends)
-    packages += [
-        "triton/triton_patch",
-        "triton/triton_patch/language",
-        "triton/triton_patch/compiler",
-        "triton/triton_patch/runtime",
-    ]
 
     return packages
 
@@ -562,7 +593,6 @@ def get_package_dir(backends):
     # upstream triton
     package_dir = {
         "triton": f"{triton_prefix_dir}",
-        "triton/_C": f"{triton_prefix_dir}/_C",
         "triton/backends": f"{triton_prefix_dir}/backends",
         "triton/compiler": f"{triton_prefix_dir}/compiler",
         "triton/language": f"{triton_prefix_dir}/language",
@@ -574,16 +604,7 @@ def get_package_dir(backends):
         package_dir[f"triton/backends/{backend.name}"] = (
             f"{triton_prefix_dir}/backends/{backend.name}"
         )
-    language_extra_list = get_language_extra_packages(backends)
-    for extra_full in language_extra_list:
-        extra_name = extra_full.replace("triton/language/extra/", "")
-        package_dir[extra_full] = f"{triton_prefix_dir}/language/extra/{extra_name}"
-
-    # triton patch
-    package_dir["triton/triton_patch"] = f"{triton_patch_prefix_dir}"
-    package_dir["triton/triton_patch/language"] = f"{triton_patch_prefix_dir}/language"
-    package_dir["triton/triton_patch/compiler"] = f"{triton_patch_prefix_dir}/compiler"
-    package_dir["triton/triton_patch/runtime"] = f"{triton_patch_prefix_dir}/runtime"
+    package_dir.update(get_language_extra_package_dirs(backends))
 
     package_dir["triton/language/_utils.py"] = (
         f"{triton_patch_prefix_dir}/language/_utils.py"
@@ -713,11 +734,17 @@ setup(
     packages=get_packages(_backends),
     package_data=get_package_data(_backends),
     include_package_data=True,
-    ext_modules=[CMakeExtension("triton", "triton/_C/")],
+    ext_modules=[CMakeExtension("triton._C.libtriton", "triton/_C/")],
     cmdclass={
         "build_ext": BuildExt,
+        "build_py": BuildPy,
         "bdist_wheel": BuildWheel,
         "clean": BuildClean,  # type: ignore[misc]
+    },
+    entry_points={
+        "triton.backends": [
+            "dicp_triton = triton.backends.dicp_triton",
+        ],
     },
     zip_safe=False,
     # for PyPI

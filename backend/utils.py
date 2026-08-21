@@ -157,6 +157,11 @@ def get_current_backend():
     global backend
     if backend is not None:
         return backend
+    override = os.getenv("DICP_BACKEND", "").lower()
+    if override:
+        if override not in {"ascend", "mlu", "maca", "nvidia", "wafer"}:
+            raise RuntimeError(f"Unsupported DICP_BACKEND '{override}'.")
+        backend = override
     elif command_exists("npu-smi"):
         backend = "ascend"
     elif command_exists("cnmon"):
