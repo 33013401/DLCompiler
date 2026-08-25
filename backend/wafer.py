@@ -206,8 +206,70 @@ def llir_to_object(llvm_ir, metadata):
         return object_path.read_bytes()
 
 
+def _find_linker_library(linker, name):
+    output = subprocess.check_output(
+        [str(linker), "-march=rv64imfdc", "-mabi=lp64d", f"-print-file-name={name}"],
+        text=True,
+    ).strip()
+    path = Path(output)
+    if output == name or not path.is_file():
+        raise RuntimeError(f"{linker} could not locate {name}: {output}")
+    return path
+
+
+def object_to_binary(obj, metadata):
+    if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
+        raise RuntimeError(
+            "Wafer simulator linking requires libvr, libtriton_cmodel, "
+            "libtx8be_op_cmodel, and libneuralcore_qemu; they are not part of the current SDK."
+        )
+    tx8_root = Path(os.environ["TX8_DEPS_ROOT"])
+    toolchain_root = Path(os.getenv("XUANTIE_NAME", tx8_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"))
+    linker = toolchain_root / "bin" / "riscv64-unknown-elf-gcc"
+    wafer_lib_dir = Path(os.getenv("WAFER_RUNTIME_LIB_DIR", Path(__file__).resolve().parent / "lib"))
+    if not wafer_lib_dir.is_dir():
+        wafer_lib_dir = Path(__file__).resolve().parent.parent / "third_party" / "wafer" / "lib"
+
+    required = [linker, wafer_lib_dir, tx8_root / "lib"]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise RuntimeError("Wafer runtime link dependencies are missing: " + ", ".join(missing))
+    libc_dir = _find_linker_library(linker, "libc.a").parent
+    libgcc_dir = _find_linker_library(linker, "libgcc.a").parent
+
+    key = hashlib.sha256(obj).hexdigest()
+    from triton.runtime.cache import get_cache_manager
+
+    cache = get_cache_manager(key)
+    cache_path = cache.get_file("kernel.so")
+    if cache_path is None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            object_path = Path(tmpdir) / "kernel.o"
+            binary_path = Path(tmpdir) / "kernel.so"
+            object_path.write_bytes(obj)
+            command = [
+                str(linker), "-shared", "-march=rv64imfdc", "-mabi=lp64d", "-O2", "-nostartfiles",
+                "-Wl,--allow-shlib-undefined", "-Wl,--no-dynamic-linker", str(object_path),
+                f"-L{wafer_lib_dir}", f"-L{libc_dir}", f"-L{libgcc_dir}", f"-L{tx8_root / 'lib'}",
+                "-Wl,--start-group", "-lcommon_util", "-linstr_tx81", "-llibc_stub", "-lvr",
+                "-Wl,--end-group", "-lm", "-Wl,--gc-sections", "-Wl,--unique=.rodata.name", "-lc", "-lgcc",
+                "-o", str(binary_path),
+            ]
+            _run_tool(command)
+            _dump_file(binary_path)
+            cache_path = cache.put(binary_path.read_bytes(), "kernel.so", binary=True)
+
+    metadata["kernel_path"] = cache_path
+    metadata["so_key"] = Path(cache_path).parent.name
+    return Path(cache_path).read_bytes()
+
+
+def runtime_binary_enabled():
+    return os.getenv("WAFER_ENABLE_RUNTIME", "0").lower() in ("1", "true", "yes")
+
+
 class TXDABackend(BaseBackend):
-    binary_ext = "o"
+    binary_ext = "so" if runtime_binary_enabled() else "o"
 
     @staticmethod
     def supports_target(target: GPUTarget):
@@ -264,7 +326,10 @@ class TXDABackend(BaseBackend):
         stages["coreir"] = lambda source, metadata: ttir_to_coreir(source)
         stages["txir"] = lambda source, metadata: coreir_to_txir(source)
         stages["llir"] = lambda source, metadata: txir_to_llir(source, metadata)
-        stages[self.binary_ext] = lambda source, metadata: llir_to_object(source, metadata)
+        if runtime_binary_enabled():
+            stages["so"] = lambda source, metadata: object_to_binary(llir_to_object(source, metadata), metadata)
+        else:
+            stages["o"] = lambda source, metadata: llir_to_object(source, metadata)
 
     def get_module_map(self) -> Dict[str, ModuleType]:
         try:

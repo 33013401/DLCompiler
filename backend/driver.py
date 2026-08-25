@@ -123,27 +123,6 @@ class DICUtils:
         self.get_device_properties = mod.get_device_properties
 
 
-class TXDAUtils:
-    def load_binary(self, name, kernel, shared_mem, device):
-        raise RuntimeError("Wafer hardware runtime support is not installed.")
-
-    def get_device_properties(self, device=None):
-        raise RuntimeError("Wafer hardware runtime support is not installed.")
-
-
-class SimulatorUtils:
-    def load_binary(self, name, kernel, shared_mem, device):
-        raise RuntimeError("Wafer simulator linking is deferred to the runtime migration.")
-
-    def get_device_properties(self, device=None):
-        return {"max_shared_mem": 3 * 1024 * 1024 - 2 * 0x10000}
-
-
-class TXDALauncher:
-    def __init__(self, src, metadata):
-        raise RuntimeError("Wafer launcher support is deferred to the runtime migration.")
-
-
 class DICPDriver(DriverBase):
     def __init__(self, target=None):
         if self.__initialized:
@@ -192,6 +171,8 @@ class DICPDriver(DriverBase):
 
             hook_autotune_for_ascend()
         elif backend == "wafer":
+            from .wafer_runtime import SimulatorUtils, TXDALauncher, TXDAUtils, get_runtime
+
             self.target = "wafer"
             if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
                 self.utils = SimulatorUtils()
@@ -199,10 +180,8 @@ class DICPDriver(DriverBase):
                 self.set_current_device = lambda device: None
             else:
                 self.utils = TXDAUtils()
-                import torch
-
-                self.get_current_device = torch.txda.current_device
-                self.set_current_device = torch.txda.set_device
+                self.get_current_device = lambda: get_runtime().current_device()
+                self.set_current_device = lambda device: get_runtime().set_device(device)
             self.launcher_cls = TXDALauncher
         elif backend == "nvidia":
             from triton.backends.nvidia.driver import CudaLauncher, CudaUtils
