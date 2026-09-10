@@ -47,12 +47,12 @@ if ! find $project_dir -maxdepth 1 -type d -name "offline_pkgs" | grep -q .; the
 fi
 
 #3.检测tx8_deps
-tx8_deps_tar=$(find $project_dir -maxdepth 1 -name "tx8_depends_*.tar.gz" -print -quit)
-if [ -f "$tx8_deps_tar" ]; then
+wafer_deps_tar=$(find $project_dir -maxdepth 1 -name "tx8_depends_*.tar.gz" -print -quit)
+if [ -f "$wafer_deps_tar" ]; then
     if find $project_dir -maxdepth 1 -type d -name "tx8_deps" | grep -q .; then
         rm -rf $project_dir/tx8_deps
     fi
-    tar -zxvf $tx8_deps_tar
+    tar -zxvf $wafer_deps_tar
 fi
 
 if ! find $project_dir -maxdepth 1 -type d -name "tx8_deps" | grep -q .; then
@@ -61,12 +61,12 @@ if ! find $project_dir -maxdepth 1 -type d -name "tx8_deps" | grep -q .; then
 fi
 
 #4.检测torch_txda
-torch_txda_tar=$(find $project_dir -maxdepth 1 -name "torch_txda*.tar.gz" -print -quit)
-if [ -f "$torch_txda_tar" ]; then
+wafer_torch_stack_tar=$(find $project_dir -maxdepth 1 -name "torch_txda*.tar.gz" -print -quit)
+if [ -f "$wafer_torch_stack_tar" ]; then
     if find $project_dir -maxdepth 1 -type d -name "pack" | grep -q .; then
         rm -rf $project_dir/pack
     fi
-    tar -zxvf $torch_txda_tar
+    tar -zxvf $wafer_torch_stack_tar
 fi
 
 if ! find $project_dir -maxdepth 1 -type d -name "pack" | grep -q .; then
@@ -109,10 +109,10 @@ unset http_proxy
 unset all_proxy
 
 #7.安装torch_txda
-txops_wheel=$(find $project_dir/pack -maxdepth 1 -name "txops*.whl" -print -quit)
-torch_txda_wheel=$(find $project_dir/pack -maxdepth 1 -name "torch_txda*.whl" -print -quit)
-pip3 install $txops_wheel
-pip3 install $torch_txda_wheel
+wafer_ops_wheel=$(find $project_dir/pack -maxdepth 1 -name "txops*.whl" -print -quit)
+wafer_torch_extension_wheel=$(find $project_dir/pack -maxdepth 1 -name "torch_txda*.whl" -print -quit)
+pip3 install $wafer_ops_wheel
+pip3 install $wafer_torch_extension_wheel
 #check torch_txda
 python3 -c "import txops;print(txops.__dict__['__path__'])"
 python3 -c "import torch_txda;print(torch_txda.__dict__['__path__'])"

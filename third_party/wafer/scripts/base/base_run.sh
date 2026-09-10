@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+
+
 if [ $# -le 2 ]; then
     echo "Error: At least two parameters need to be passed!"
     exit 1
@@ -22,17 +26,17 @@ shift
 shift
 
 TRITON=$WORKSPACE/FlagTree
-TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
 LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 
-if [ ! -d $TX8_DEPS_ROOT ] || [ ! -d $LLVM ]; then
+if [ ! -d $WAFER_DEPS_ROOT ] || [ ! -d $LLVM ]; then
     WORKSPACE="${HOME}/.triton/wafer/"
-    TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+    WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
     LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 fi
 
-if [ ! -d $TX8_DEPS_ROOT ]; then
-    echo "Error: $TX8_DEPS_ROOT not exist!" 1>&2
+if [ ! -d $WAFER_DEPS_ROOT ]; then
+    echo "Error: $WAFER_DEPS_ROOT not exist!" 1>&2
     exit 1
 fi
 
@@ -45,19 +49,20 @@ if [ -f $TRITON/.venv/bin/activate ]; then
     source $TRITON/.venv/bin/activate
 fi
 
-txda_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
-txda_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
+wafer_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
+wafer_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
 
 # 必须的
-export TX8_DEPS_ROOT=$TX8_DEPS_ROOT
+export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
 export LLVM_SYSPATH=$LLVM
 export LLVM_BINARY_DIR=$LLVM/bin
 
 # 后续需要优化删除的
 export PYTHONPATH=$LLVM/python_packages/mlir_core:$PYTHONPATH
-export LD_LIBRARY_PATH=$TX8_DEPS_ROOT/lib:$LD_LIBRARY_PATH
-export TXDA_SKIP_OPS=$txda_skip_ops
-export TXDA_FALLBACK_CPU_OPS=$txda_fallback_cpu_ops
+export LD_LIBRARY_PATH=$WAFER_DEPS_ROOT/lib:$LD_LIBRARY_PATH
+export TXDA_SKIP_OPS=$wafer_skip_ops
+export TXDA_FALLBACK_CPU_OPS=$wafer_fallback_cpu_ops
 
 # 非必须的 调试相关
 export TRITON_DUMP_PATH=$TRITON/dump
@@ -74,12 +79,12 @@ export TRITON_ALLOW_NON_CONSTEXPR_GLOBALS=1
 # export DEBUG=ON
 # export ENABLE_PROFILING=1
 # export USE_HOST_PROFILE=1
-# export TX_LOG_LEVEL=debug
+# export WAFER_LOG_LEVEL=debug
 # export CUSTOMIZED_IR=test_0.mlir,test_1.mlir
 # export TRACE_POINTS="__Rdma,__Wdma"
 
-echo "export TX_LOG_LEVEL=$TX_LOG_LEVEL"
-echo "export TX8_DEPS_ROOT=$TX8_DEPS_ROOT"
+echo "export WAFER_LOG_LEVEL=$TX_LOG_LEVEL"
+echo "export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT"
 echo "export LLVM_SYSPATH=$LLVM_SYSPATH"
 echo "export LLVM_BINARY_DIR=$LLVM_BINARY_DIR"
 echo "export PYTHONPATH=$PYTHONPATH"

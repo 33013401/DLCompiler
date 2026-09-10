@@ -286,7 +286,10 @@ def device_log_abi():
 
 
 def _runtime_link_inputs():
-    wafer_deps_root = Path(os.environ["TX8_DEPS_ROOT"])
+    deps_root = os.getenv("WAFER_DEPS_ROOT") or os.getenv("TX8_DEPS_ROOT")
+    if not deps_root:
+        raise RuntimeError("WAFER_DEPS_ROOT is not set; source init_wafer_env.sh first.")
+    wafer_deps_root = Path(deps_root)
     toolchain_root = Path(
         os.getenv(
             "XUANTIE_NAME", wafer_deps_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"

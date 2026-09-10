@@ -15,7 +15,7 @@ from .wafer_cache import cache_digest, file_fingerprint
 def _sdk_path(name):
     root = os.getenv("KUIPER_ROOT")
     if not root:
-        raise RuntimeError("KUIPER_ROOT is not set; source init_tx81_env.sh first.")
+        raise RuntimeError("KUIPER_ROOT is not set; source init_wafer_env.sh first.")
     return os.path.join(root, name)
 
 

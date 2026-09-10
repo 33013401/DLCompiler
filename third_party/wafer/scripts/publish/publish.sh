@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+
 set -e
 
 ##########################################################################################################################
@@ -17,9 +21,9 @@ if [ -z "${WORKSPACE+x}" ]; then
     WORKSPACE=$(realpath "$project_dir/..")
 fi
 
-TX8_SDK_Triton_version=1.9.0
-sdk_name=TX8_SDK_${TX8_SDK_Triton_version}_Triton
-# TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+WAFER_SDK_TRITON_VERSION=1.9.0
+sdk_name=TX8_SDK_${WAFER_SDK_TRITON_VERSION}_Triton
+# WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
 # LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 triton_dir=$project_dir
 flaggems_dir=$WORKSPACE/flaggems

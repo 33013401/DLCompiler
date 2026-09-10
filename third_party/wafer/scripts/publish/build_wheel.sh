@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+WAFER_RT_THREAD_SMP_ROOT=${WAFER_RT_THREAD_SMP_ROOT:-${TX8_YOC_RT_THREAD_SMP:-}}
+
 set -e
 
 ##########################################################################################################################
@@ -18,7 +23,7 @@ if [ -z "${WORKSPACE+x}" ]; then
     WORKSPACE=$(realpath "$project_dir/..")
 fi
 
-TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
 LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 BUILD_TYPE="release"
 
@@ -53,12 +58,12 @@ if ! find $WORKSPACE -maxdepth 1 -type d -name "offline_pkgs" | grep -q .; then
 fi
 
 #3.检测tx8_deps
-tx8_deps_tar=$(find $WORKSPACE -maxdepth 1 -name "tx8_depends_*.tar.gz" -print -quit)
-if [ -f "$tx8_deps_tar" ]; then
+wafer_deps_tar=$(find $WORKSPACE -maxdepth 1 -name "tx8_depends_*.tar.gz" -print -quit)
+if [ -f "$wafer_deps_tar" ]; then
     if find $WORKSPACE -maxdepth 1 -type d -name "tx8_deps" | grep -q .; then
        echo "find tx8_deps"
     else
-        tar -zxvf $tx8_deps_tar
+        tar -zxvf $wafer_deps_tar
     fi
 fi
 
@@ -115,10 +120,12 @@ export TRITON_BUILD_WITH_CCACHE=true
 export TRITON_OFFLINE_BUILD=ON
 export TRITON_BUILD_PROTON=OFF
 export LLVM_SYSPATH=$LLVM
-export TX8_DEPS_ROOT=$TX8_DEPS_ROOT
+export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
 # synchronous temporary solution: add waitfinish after every cintrinsic exec
 export ENABLE_SYNCHRONOUS_INTRINSIC=1
-export TX8_YOC_RT_THREAD_SMP=$TX8_DEPS_ROOT/tx8-yoc-rt-thread-smp
+export WAFER_RT_THREAD_SMP_ROOT=$WAFER_DEPS_ROOT/tx8-yoc-rt-thread-smp
+export TX8_YOC_RT_THREAD_SMP="$WAFER_RT_THREAD_SMP_ROOT"
 
 cd python
 python3 -m pip wheel . --no-build-isolation -v --verbos

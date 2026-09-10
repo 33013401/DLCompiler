@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+WAFER_SDK_INCLUDE_DIR=${WAFER_SDK_INCLUDE_DIR:-${WAFER_TX8_INCLUDE_DIR:-}}
+
+
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WORK_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 LLVM_COMMIT=7d5de3033187c8a3bb4d2e322f5462cdaf49808f
 LLVM_SYSPATH=${LLVM_SYSPATH:-$WORK_ROOT/llvm-7d5de303-ubuntu-x64}
-WAFER_SDK_ROOT=${TX8_DEPS_ROOT:-$WORK_ROOT/tx8_deps}
+WAFER_SDK_ROOT=${WAFER_DEPS_ROOT:-$WORK_ROOT/tx8_deps}
 ENV_FILE=${WAFER_ENV_FILE:-$SCRIPT_DIR/wafer_env.sh}
 
 if [[ ! -x "$LLVM_SYSPATH/bin/llvm-config" ]]; then
@@ -30,7 +35,8 @@ export LLVM_SYSPATH="$LLVM_SYSPATH"
 export LLVM_BINARY_DIR="\$LLVM_SYSPATH/bin"
 export LLVM_DIR="\$LLVM_SYSPATH/lib/cmake/llvm"
 export MLIR_DIR="\$LLVM_SYSPATH/lib/cmake/mlir"
-export WAFER_TX8_INCLUDE_DIR="$WAFER_SDK_ROOT/include"
+export WAFER_SDK_INCLUDE_DIR="$WAFER_SDK_ROOT/include"
+export WAFER_TX8_INCLUDE_DIR="\$WAFER_SDK_INCLUDE_DIR"
 export PATH="\$LLVM_BINARY_DIR:\${PATH:-}"
 export DICP_BACKEND=wafer
 export USE_SIM_MODE=1

@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+
 set -e
 ##1.下载triton、flaggems代码到/login_home/jenkins_tc/triton目录(CI负责,必须是这个目录,在容器外以root账号)
 #sudo -s
@@ -48,10 +52,10 @@ quick_mode=0
 skip_device=
 
 precision_priority=1
-tx8_depends_name=tx8_depends_dev_20260309_173649
-torch_txda_name=torch_txda+txops-20251230-03541ed8+71a1e5a
-txda_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
-txda_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
+wafer_deps_name=tx8_depends_dev_20260309_173649
+wafer_torch_stack_name=torch_txda+txops-20251230-03541ed8+71a1e5a
+wafer_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
+wafer_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
 
 if [ $# -ge 1 ]; then
 	skip_install=$1
@@ -83,10 +87,10 @@ echo "device_count:"$device_count
 echo "quick_mode:"$quick_mode
 echo "skip_device:"$skip_device
 echo "precision_priority:"$precision_priority
-echo "tx8_depends_name:"$tx8_depends_name
-echo "torch_txda_name:"$torch_txda_name
-echo "txda_skip_ops:"$txda_skip_ops
-echo "txda_fallback_cpu_ops:"$txda_fallback_cpu_ops
+echo "tx8_depends_name:"$wafer_deps_name
+echo "torch_txda_name:"$wafer_torch_stack_name
+echo "txda_skip_ops:"$wafer_skip_ops
+echo "txda_fallback_cpu_ops:"$wafer_fallback_cpu_ops
 ##1.下载依赖(triton业务负责)
 cd $project_dir
 #为了加快ci速度,从提前下载好的位置cp. src位置变后此处要更新
@@ -146,32 +150,32 @@ if [ ! -d "./offline_pkgs" ]; then
 fi
 
 ###download tx8_deps(变化频率较高)
-if [ ! -e $tx8_depends_name.tar.gz ]; then
-	if [ -e $TRITON_DEPENDS_SRC/$tx8_depends_name.tar.gz ]; then
-		cp $TRITON_DEPENDS_SRC/$tx8_depends_name.tar.gz ./
+if [ ! -e $wafer_deps_name.tar.gz ]; then
+	if [ -e $TRITON_DEPENDS_SRC/$wafer_deps_name.tar.gz ]; then
+		cp $TRITON_DEPENDS_SRC/$wafer_deps_name.tar.gz ./
 		if [ -d "./tx8_deps" ]; then
 			rm -rf tx8_deps
 		fi
-		tar -xzvf $tx8_depends_name.tar.gz
-		echo "cp $TRITON_DEPENDS_SRC/$tx8_depends_name.tar.gz complete!"
+		tar -xzvf $wafer_deps_name.tar.gz
+		echo "cp $TRITON_DEPENDS_SRC/$wafer_deps_name.tar.gz complete!"
 	else
-		echo "warning：$TRITON_DEPENDS_SRC/$tx8_depends_name.tar.gz not exist， use wget to download, maybe very slowly!"
+		echo "warning：$TRITON_DEPENDS_SRC/$wafer_deps_name.tar.gz not exist， use wget to download, maybe very slowly!"
 	fi
 fi
 
-if [ ! -e $tx8_depends_name.tar.gz ]; then
+if [ ! -e $wafer_deps_name.tar.gz ]; then
 	if [ -d "./tx8_deps" ]; then
 		rm -rf tx8_deps
 	fi
 
-	wget https://toolchain-jfrog.wafer.xyz:443/artifactory/tx8-generic-dev/triton/tx8_depends/$tx8_depends_name.tar.gz
+	wget https://toolchain-jfrog.wafer.xyz:443/artifactory/tx8-generic-dev/triton/tx8_depends/$wafer_deps_name.tar.gz
 	if [ $? -eq 0 ]; then
 		echo "Download tx8_deps complete!"
 	else
 		echo "Download tx8_dpes fail!!!"
 		exit -1
 	fi
-	tar -xzvf $tx8_depends_name.tar.gz
+	tar -xzvf $wafer_deps_name.tar.gz
 fi
 
 if [ ! -d "./tx8_deps" ]; then
@@ -180,32 +184,32 @@ if [ ! -d "./tx8_deps" ]; then
 fi
 
 ###download torch_txda(变化频率较高)
-if [ ! -e $torch_txda_name.tar.gz ]; then
-	if [ -e $TRITON_DEPENDS_SRC/$torch_txda_name.tar.gz ]; then
-		cp $TRITON_DEPENDS_SRC/$torch_txda_name.tar.gz ./
+if [ ! -e $wafer_torch_stack_name.tar.gz ]; then
+	if [ -e $TRITON_DEPENDS_SRC/$wafer_torch_stack_name.tar.gz ]; then
+		cp $TRITON_DEPENDS_SRC/$wafer_torch_stack_name.tar.gz ./
 		if [ -d "./pack" ]; then
 			rm -rf pack
 		fi
-		tar -xzvf $torch_txda_name.tar.gz
-		echo "cp $TRITON_DEPENDS_SRC/$torch_txda_name.tar.gz complete!"
+		tar -xzvf $wafer_torch_stack_name.tar.gz
+		echo "cp $TRITON_DEPENDS_SRC/$wafer_torch_stack_name.tar.gz complete!"
 	else
-		echo "warning：$TRITON_DEPENDS_SRC/$torch_txda_name.tar.gz not exist， use wget to download, maybe very slowly!"
+		echo "warning：$TRITON_DEPENDS_SRC/$wafer_torch_stack_name.tar.gz not exist， use wget to download, maybe very slowly!"
 	fi
 fi
 
-if [ ! -e $torch_txda_name.tar.gz ]; then
+if [ ! -e $wafer_torch_stack_name.tar.gz ]; then
 	if [ -d "./pack" ]; then
 		rm -rf pack
 	fi
 
-	wget https://toolchain-jfrog.wafer.xyz:443/artifactory/tx8-generic-dev/torch_txda/$torch_txda_name.tar.gz
+	wget https://toolchain-jfrog.wafer.xyz:443/artifactory/tx8-generic-dev/torch_txda/$wafer_torch_stack_name.tar.gz
 	if [ $? -eq 0 ]; then
 		echo "Download torch_txda complete!"
 	else
 		echo "Download torch_txda fail!!!"
 		exit -1
 	fi
-	tar -xzvf $torch_txda_name.tar.gz
+	tar -xzvf $wafer_torch_stack_name.tar.gz
 fi
 
 if [ ! -d "./pack" ]; then
@@ -253,10 +257,10 @@ if [ $skip_install -ne 1 ]; then
 	unset all_proxy
 
 	###install torch_txda(变化频率较高,须随着上述下载名字变化而变化)
-	txops_wheel=$(find ../pack/ -maxdepth 1 -name "txops*.whl" -print -quit)
-	torch_txda_wheel=$(find ../pack/ -maxdepth 1 -name "torch_txda*.whl" -print -quit)
-	pip install $txops_wheel
-	pip install $torch_txda_wheel
+	wafer_ops_wheel=$(find ../pack/ -maxdepth 1 -name "txops*.whl" -print -quit)
+	wafer_torch_extension_wheel=$(find ../pack/ -maxdepth 1 -name "torch_txda*.whl" -print -quit)
+	pip install $wafer_ops_wheel
+	pip install $wafer_torch_extension_wheel
 fi
 
 ##3.编译triton(triton业务负责)
@@ -271,13 +275,14 @@ if [ $skip_build -ne 1 ]; then
 fi
 ##4.运行测试(triton业务负责)
 #triton系统相关环境变量
-TX8_DEPS_ROOT=$TRITON_WORKSPACE/tx8_deps
+WAFER_DEPS_ROOT=$TRITON_WORKSPACE/tx8_deps
 LLVM=$TRITON_WORKSPACE/llvm-a66376b0-ubuntu-x64
-export TX8_DEPS_ROOT=$TX8_DEPS_ROOT
+export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
 export LLVM_SYSPATH=$LLVM
 export LLVM_BINARY_DIR=$LLVM/bin
 export PYTHONPATH=$LLVM/python_packages/mlir_core:$PYTHONPATH
-export LD_LIBRARY_PATH=$TX8_DEPS_ROOT/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$WAFER_DEPS_ROOT/lib:$LD_LIBRARY_PATH
 #export TRITON_DUMP_PATH=$TRITON_WORKSPACE/dump
 export TRITON_ALWAYS_COMPILE=1
 export TRITON_PRINT_AUTOTUNING=1
@@ -286,10 +291,10 @@ export JSON_FILE_PATH=$project_dir/flaggems/tests
 #export TX8_DEVICES_COUNT=$device_count
 export PRECISION_PRIORITY=$precision_priority
 export TRITON_ALLOW_NON_CONSTEXPR_GLOBALS=1
-export TXDA_SKIP_OPS=$txda_skip_ops
-export TXDA_FALLBACK_CPU_OPS=$txda_fallback_cpu_ops
+export TXDA_SKIP_OPS=$wafer_skip_ops
+export TXDA_FALLBACK_CPU_OPS=$wafer_fallback_cpu_ops
 
-echo "TX8_DEPS_ROOT="$TX8_DEPS_ROOT
+echo "WAFER_DEPS_ROOT="$WAFER_DEPS_ROOT
 echo "LLVM_SYSPATH="$LLVM_SYSPATH
 echo "LLVM_BINARY_DIR="$LLVM_BINARY_DIR
 echo "PYTHONPATH="$PYTHONPATH

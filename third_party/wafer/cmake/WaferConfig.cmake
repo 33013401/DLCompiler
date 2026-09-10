@@ -1,0 +1,20 @@
+# New project names take precedence over legacy CMake/environment inputs.
+macro(wafer_config_alias canonical legacy)
+  if(NOT DEFINED ${canonical})
+    if(DEFINED ENV{${canonical}})
+      set(${canonical} "$ENV{${canonical}}")
+    elseif(DEFINED ${legacy})
+      set(${canonical} "${${legacy}}")
+    elseif(DEFINED ENV{${legacy}})
+      set(${canonical} "$ENV{${legacy}}")
+    endif()
+  endif()
+  if(DEFINED ${canonical})
+    # SDK/older build consumers can continue reading the old spelling.
+    set(${legacy} "${${canonical}}")
+  endif()
+endmacro()
+
+wafer_config_alias(WAFER_DEPS_ROOT TX8_DEPS_ROOT)
+wafer_config_alias(WAFER_SDK_INCLUDE_DIR WAFER_TX8_INCLUDE_DIR)
+wafer_config_alias(WAFER_RT_THREAD_SMP_ROOT TX8_YOC_RT_THREAD_SMP)

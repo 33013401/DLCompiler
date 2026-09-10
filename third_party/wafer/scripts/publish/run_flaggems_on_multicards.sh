@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+
 set -e
 ##.在docker容器内版本包路径下执行
 #bash scripts/run_flaggems_on_multicards.sh ci_ops 1
@@ -27,8 +31,8 @@ device_count=1
 quick_mode=0
 skip_device=
 precision_priority=1
-txda_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
-txda_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
+wafer_skip_ops="repeat_interleave.self_int,pad,to.dtype,uniform_,sort.values_stable,contiguous,resolve_conj"
+wafer_fallback_cpu_ops="random_,quantile,_local_scalar_dense,arange,unfold,index,le,all,ge,pad,to,gather_backward,zero_,view_as_real,resolve_neg,embedding_backward,sort,repeat_interleave,rsub,hstack,vstack,min,uniform_,abs,ne,eq,mul,bitwise_and,masked_select,max,ceil,div,gt,lt,sum,scatter,where,resolve_conj,isclose,isfinite,tile,equal,gather,contiguous"
 
 if [ $# -ge 1 ]; then
 	test_set=$1
@@ -48,26 +52,27 @@ echo "device_count:"$device_count
 echo "quick_mode:"$quick_mode
 echo "skip_device:"$skip_device
 echo "precision_priority:"$precision_priority
-echo "txda_skip_ops:"$txda_skip_ops
-echo "txda_fallback_cpu_ops:"$txda_fallback_cpu_ops
+echo "txda_skip_ops:"$wafer_skip_ops
+echo "txda_fallback_cpu_ops:"$wafer_fallback_cpu_ops
 
 #triton系统相关环境变量
-TX8_DEPS_ROOT=$project_dir/tx8_deps
+WAFER_DEPS_ROOT=$project_dir/tx8_deps
 LLVM=$project_dir/llvm-a66376b0-ubuntu-x64
-export TX8_DEPS_ROOT=$TX8_DEPS_ROOT
+export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
 export LLVM_SYSPATH=$LLVM
 export LLVM_BINARY_DIR=$LLVM/bin
 export PYTHONPATH=$LLVM/python_packages/mlir_core:$PYTHONPATH
-export LD_LIBRARY_PATH=$TX8_DEPS_ROOT/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$WAFER_DEPS_ROOT/lib:$LD_LIBRARY_PATH
 export TRITON_ALWAYS_COMPILE=1
 #测试任务相关环境变量
 export JSON_FILE_PATH=$project_dir/flaggems_tests
 export PRECISION_PRIORITY=$precision_priority
 export TRITON_ALLOW_NON_CONSTEXPR_GLOBALS=1
-export TXDA_SKIP_OPS=$txda_skip_ops
-export TXDA_FALLBACK_CPU_OPS=$txda_fallback_cpu_ops
+export TXDA_SKIP_OPS=$wafer_skip_ops
+export TXDA_FALLBACK_CPU_OPS=$wafer_fallback_cpu_ops
 
-echo "TX8_DEPS_ROOT="$TX8_DEPS_ROOT
+echo "WAFER_DEPS_ROOT="$WAFER_DEPS_ROOT
 echo "LLVM_SYSPATH="$LLVM_SYSPATH
 echo "LLVM_BINARY_DIR="$LLVM_BINARY_DIR
 echo "PYTHONPATH="$PYTHONPATH

@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+WAFER_SDK_INCLUDE_DIR=${WAFER_SDK_INCLUDE_DIR:-${WAFER_TX8_INCLUDE_DIR:-}}
+WAFER_DEPS_TAR_URL=${WAFER_DEPS_TAR_URL:-${TX8_DEPS_TAR_URL:-}}
+WAFER_DEPS_ARCHIVE=${WAFER_DEPS_ARCHIVE:-${TX8_DEPS_ARCHIVE:-}}
+WAFER_TORCH_STACK_URL=${WAFER_TORCH_STACK_URL:-${TORCH_TXDA_TAR_URL:-}}
+
 # 使用 Bash 执行本脚本。
 
 # 任何命令失败、使用未定义变量或管道中任意命令失败时立即退出。
@@ -34,11 +42,11 @@ COMPILER_ONLY=0
 KEEP_DOWNLOADS=${KEEP_DOWNLOADS:-1}
 
 # 当前已知的唯一 TXDA 发布包；只有供应方发布匹配 manifest 时才允许覆盖。
-TORCH_TXDA_TAR_URL=${TORCH_TXDA_TAR_URL:-https://toolchain-jfrog.wafer.xyz/artifactory/tx8-generic-dev/torch_txda/torch_txda%2Btxops-20251230-03541ed8%2B71a1e5a.tar.gz}
+WAFER_TORCH_STACK_URL=${WAFER_TORCH_STACK_URL:-https://toolchain-jfrog.wafer.xyz/artifactory/tx8-generic-dev/torch_txda/torch_txda%2Btxops-20251230-03541ed8%2B71a1e5a.tar.gz}
 # TX8 依赖归档地址；脚本同目录存在本地归档时不需要设置。
-TX8_DEPS_TAR_URL=${TX8_DEPS_TAR_URL:-}
+WAFER_DEPS_TAR_URL=${WAFER_DEPS_TAR_URL:-}
 # 可显式指定 TX8 本地归档；未指定时自动查找脚本同目录下的 tx8_depends*.tar.gz。
-TX8_DEPS_ARCHIVE=${TX8_DEPS_ARCHIVE:-}
+WAFER_DEPS_ARCHIVE=${WAFER_DEPS_ARCHIVE:-}
 # Kuiper SDK/runtime 归档地址，完整模式必须由执行人显式提供。
 KUIPER_TAR_URL=${KUIPER_TAR_URL:-}
 # 与 TXDA/txops 同一发布组合的 PyTorch wheel 地址。
@@ -56,8 +64,8 @@ Repository branch:
     DL_REPO_BRANCH    Branch to clone (default: wafer-migration-squashed)
 
 Required in all modes unless a local archive is present beside this script:
-    TX8_DEPS_TAR_URL  URL of the TX8 dependency archive
-    TX8_DEPS_ARCHIVE  Local TX8 archive path; overrides automatic local discovery
+    WAFER_DEPS_TAR_URL  URL of the TX8 dependency archive
+    WAFER_DEPS_ARCHIVE  Local TX8 archive path; overrides automatic local discovery
 
 Required for the full hardware environment:
   KUIPER_TAR_URL    URL of the matching Kuiper SDK/runtime archive
@@ -108,17 +116,17 @@ fi
 
 # Wafer 编译器本身就需要 TX8 的 instr_def.h。优先使用脚本同目录的本地归档，
 # 这样迁移脚本和 tx8 dev 包放在一起时无需配置内部制品库 URL。
-if [[ -z "$TX8_DEPS_ARCHIVE" ]]; then
-    TX8_DEPS_ARCHIVE=$(find "$SCRIPT_DIR" -maxdepth 1 -type f \
+if [[ -z "$WAFER_DEPS_ARCHIVE" ]]; then
+    WAFER_DEPS_ARCHIVE=$(find "$SCRIPT_DIR" -maxdepth 1 -type f \
         \( -name 'tx8_depends*.tar.gz' -o -name 'tx8_deps*.tar.gz' \) \
         -print -quit)
 fi
-if [[ -n "$TX8_DEPS_ARCHIVE" && ! -f "$TX8_DEPS_ARCHIVE" ]]; then
-    echo "ERROR: TX8_DEPS_ARCHIVE does not exist: $TX8_DEPS_ARCHIVE" >&2
+if [[ -n "$WAFER_DEPS_ARCHIVE" && ! -f "$WAFER_DEPS_ARCHIVE" ]]; then
+    echo "ERROR: WAFER_DEPS_ARCHIVE does not exist: $WAFER_DEPS_ARCHIVE" >&2
     exit 1
 fi
-if [[ -z "$TX8_DEPS_ARCHIVE" && -z "$TX8_DEPS_TAR_URL" ]]; then
-    echo "ERROR: place a tx8_depends*.tar.gz beside this script, or set TX8_DEPS_TAR_URL" >&2
+if [[ -z "$WAFER_DEPS_ARCHIVE" && -z "$WAFER_DEPS_TAR_URL" ]]; then
+    echo "ERROR: place a tx8_depends*.tar.gz beside this script, or set WAFER_DEPS_TAR_URL" >&2
     exit 1
 fi
 # 完整模式必须有 Kuiper 归档地址。
@@ -264,22 +272,22 @@ if [[ $COMPILER_ONLY == 0 ]]; then
 fi
 
 # 准备并解压 TX8；这是 compiler-only 也必须执行的步骤。
-if [[ -z "$TX8_DEPS_ARCHIVE" ]]; then
-    TX8_ARCHIVE="$PACKAGE_ROOT/tx8/$(basename "${TX8_DEPS_TAR_URL%%\?*}")"
-    download "$TX8_DEPS_TAR_URL" "$TX8_ARCHIVE"
+if [[ -z "$WAFER_DEPS_ARCHIVE" ]]; then
+    WAFER_DEPS_PACKAGE="$PACKAGE_ROOT/tx8/$(basename "${WAFER_DEPS_TAR_URL%%\?*}")"
+    download "$WAFER_DEPS_TAR_URL" "$WAFER_DEPS_PACKAGE"
 else
-    TX8_ARCHIVE="$TX8_DEPS_ARCHIVE"
-    echo "    using local TX8 archive: $TX8_ARCHIVE"
+    WAFER_DEPS_PACKAGE="$WAFER_DEPS_ARCHIVE"
+    echo "    using local TX8 archive: $WAFER_DEPS_PACKAGE"
 fi
-record_sha256 "$TX8_ARCHIVE"
+record_sha256 "$WAFER_DEPS_PACKAGE"
 rm -rf "$DEPS_ROOT/tx8_deps"
-tar -xzf "$TX8_ARCHIVE" -C "$DEPS_ROOT"
+tar -xzf "$WAFER_DEPS_PACKAGE" -C "$DEPS_ROOT"
 
 # Wafer lowering 即使在 compiler-only 模式也需要 TX8 指令定义头文件。
 if [[ ! -f "$DEPS_ROOT/tx8_deps/include/instr_def.h" ]]; then
     if [[ $COMPILER_ONLY == 1 ]]; then
-        echo "ERROR: compiler build still requires TX8_DEPS_ROOT/include/instr_def.h" >&2
-        echo "Place a validated TX8 archive beside this script or set TX8_DEPS_TAR_URL" >&2
+        echo "ERROR: compiler build still requires WAFER_DEPS_ROOT/include/instr_def.h" >&2
+        echo "Place a validated TX8 archive beside this script or set WAFER_DEPS_TAR_URL" >&2
         exit 1
     fi
     echo "ERROR: TX8 archive did not produce $DEPS_ROOT/tx8_deps/include/instr_def.h" >&2
@@ -290,10 +298,10 @@ fi
 log "Download and install the unique torch_txda/txops release"
 if [[ $COMPILER_ONLY == 0 ]]; then
     # 计算 TXDA 发布归档的本地缓存路径。
-    TXDA_ARCHIVE="$PACKAGE_ROOT/python/$(basename "${TORCH_TXDA_TAR_URL%%\?*}")"
+    WAFER_TORCH_ARCHIVE="$PACKAGE_ROOT/python/$(basename "${WAFER_TORCH_STACK_URL%%\?*}")"
     # 下载 TXDA/txops 归档并记录校验和。
-    download "$TORCH_TXDA_TAR_URL" "$TXDA_ARCHIVE"
-    record_sha256 "$TXDA_ARCHIVE"
+    download "$WAFER_TORCH_STACK_URL" "$WAFER_TORCH_ARCHIVE"
+    record_sha256 "$WAFER_TORCH_ARCHIVE"
     # 下载同一发布组合的 PyTorch wheel，不能随意使用公共版本替代。
     TORCH_WHEEL="$PACKAGE_ROOT/python/$(basename "${TORCH_WHEEL_URL%%\?*}")"
     download "$TORCH_WHEEL_URL" "$TORCH_WHEEL"
@@ -301,18 +309,18 @@ if [[ $COMPILER_ONLY == 0 ]]; then
     # 清理上一次解压的 pack，防止混入旧版 wheel。
     rm -rf "$PACKAGE_ROOT/python/pack"
     # TXDA 归档预期会解压出 pack 目录。
-    tar -xzf "$TXDA_ARCHIVE" -C "$PACKAGE_ROOT/python"
-    TXDA_PACK="$PACKAGE_ROOT/python/pack"
+    tar -xzf "$WAFER_TORCH_ARCHIVE" -C "$PACKAGE_ROOT/python"
+    WAFER_TORCH_PACK="$PACKAGE_ROOT/python/pack"
     # 查找与当前 Python 3.10 匹配的 txops wheel。
-    TXOPS_WHEEL=$(find "$TXDA_PACK" -maxdepth 1 -type f -name 'txops-*-cp310-*.whl' -print -quit)
+    WAFER_OPS_WHEEL=$(find "$WAFER_TORCH_PACK" -maxdepth 1 -type f -name 'txops-*-cp310-*.whl' -print -quit)
     # 查找与当前 Python 3.10 匹配的 torch_txda wheel。
-    TORCH_TXDA_WHEEL=$(find "$TXDA_PACK" -maxdepth 1 -type f -name 'torch_txda-*-cp310-*.whl' -print -quit)
-    if [[ -z "$TXOPS_WHEEL" || -z "$TORCH_TXDA_WHEEL" ]]; then
+    WAFER_TORCH_EXTENSION_WHEEL=$(find "$WAFER_TORCH_PACK" -maxdepth 1 -type f -name 'torch_txda-*-cp310-*.whl' -print -quit)
+    if [[ -z "$WAFER_OPS_WHEEL" || -z "$WAFER_TORCH_EXTENSION_WHEEL" ]]; then
         echo "ERROR: TXDA archive does not contain matching cp310 txops and torch_txda wheels" >&2
         exit 1
     fi
     # 按 PyTorch、txops、torch_txda 顺序安装同一发布组合。
-    $PYTHON -m pip install "$TORCH_WHEEL" "$TXOPS_WHEEL" "$TORCH_TXDA_WHEEL"
+    $PYTHON -m pip install "$TORCH_WHEEL" "$WAFER_OPS_WHEEL" "$WAFER_TORCH_EXTENSION_WHEEL"
     # 用 import 验证三个 Python runtime 包都能加载。
     $PYTHON - <<'PY'
 import torch
@@ -326,8 +334,10 @@ fi
 
 # 设置 Wafer 构建所需的 TX8 头文件路径和 simulator 编译模式。
 log "Build and install Wafer from source"
-export TX8_DEPS_ROOT="$DEPS_ROOT/tx8_deps"
-export WAFER_TX8_INCLUDE_DIR="$TX8_DEPS_ROOT/include"
+export WAFER_DEPS_ROOT="$DEPS_ROOT/tx8_deps"
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
+export WAFER_SDK_INCLUDE_DIR="$WAFER_DEPS_ROOT/include"
+export WAFER_TX8_INCLUDE_DIR="$WAFER_SDK_INCLUDE_DIR"
 export DICP_BACKEND=wafer
 export USE_SIM_MODE=1
 # 生成 wafer_env.sh，并再次检查 LLVM 22 和 instr_def.h。

@@ -18,7 +18,7 @@ STANDARD_LEVEL_NAMES = {
 }
 
 
-def get_log_level_from_env(env_var='TX_LOG_LEVEL', default='info'):
+def get_log_level_from_env(env_var='WAFER_LOG_LEVEL', default='info'):
     """
     Read log level from environment variable.
     Supports:
@@ -26,7 +26,8 @@ def get_log_level_from_env(env_var='TX_LOG_LEVEL', default='info'):
       - Number: '0', '1', '2', '3', '4'
     Returns a standard logging level integer (e.g., logging.INFO = 20).
     """
-    raw_value = os.getenv(env_var, default).strip()
+    fallback = os.getenv("TX_LOG_LEVEL", default) if env_var == "WAFER_LOG_LEVEL" else default
+    raw_value = os.getenv(env_var, fallback).strip()
     if not raw_value:
         raw_value = default
 

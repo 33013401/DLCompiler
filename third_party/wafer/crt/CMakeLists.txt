@@ -1,3 +1,5 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/WaferConfig.cmake")
+
 cmake_minimum_required(VERSION 3.18)
 
 set(TARGET Tx81)
@@ -10,11 +12,11 @@ if(NOT DEFINED TARGET)
   endif()
 endif()
 
-if(NOT DEFINED TX8_YOC_RT_THREAD_SMP)
-  if(DEFINED ENV{TX8_YOC_RT_THREAD_SMP})
-    set(TX8_YOC_RT_THREAD_SMP $ENV{TX8_YOC_RT_THREAD_SMP})
+if(NOT DEFINED WAFER_RT_THREAD_SMP_ROOT)
+  if(DEFINED ENV{WAFER_RT_THREAD_SMP_ROOT})
+    set(WAFER_RT_THREAD_SMP_ROOT $ENV{WAFER_RT_THREAD_SMP_ROOT})
   else()
-    message(FATAL_ERROR "TX8_YOC_RT_THREAD_SMP environment variable is not defined")
+    message(FATAL_ERROR "WAFER_RT_THREAD_SMP_ROOT environment variable is not defined")
   endif()
 endif()
 
@@ -35,11 +37,11 @@ if(NOT DEFINED LLVM_SYSPATH)
   endif()
 endif()
 
-if(NOT DEFINED TX8_DEPS_ROOT)
-  if(DEFINED ENV{TX8_DEPS_ROOT})
-    set(TX8_DEPS_ROOT $ENV{TX8_DEPS_ROOT})
+if(NOT DEFINED WAFER_DEPS_ROOT)
+  if(DEFINED ENV{WAFER_DEPS_ROOT})
+    set(WAFER_DEPS_ROOT $ENV{WAFER_DEPS_ROOT})
   else()
-    message(FATAL_ERROR "TX8_DEPS_ROOT environment variable is not defined")
+    message(FATAL_ERROR "WAFER_DEPS_ROOT environment variable is not defined")
   endif()
 endif()
 
@@ -57,11 +59,11 @@ endif()
 project(VendorRuntime LANGUAGES CXX C)
 
 # Define standard include directories
-include_directories(${TX8_DEPS_ROOT}/include)
+include_directories(${WAFER_DEPS_ROOT}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/${TARGET})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${TX8_YOC_RT_THREAD_SMP}/interface/op_fw_sim_if/peripheral/include/)
+include_directories(${WAFER_RT_THREAD_SMP_ROOT}/interface/op_fw_sim_if/peripheral/include/)
 
 # Set build type default
 if(NOT CMAKE_BUILD_TYPE)
@@ -101,15 +103,15 @@ else()
   set(RISCV_TRIPLE "riscv64-unknown-elf")
   set(CMAKE_SYSTEM_PROCESSOR riscv)
 
-  include_directories(${TX8_DEPS_ROOT}/include)
+  include_directories(${WAFER_DEPS_ROOT}/include)
   if(IS_ABSOLUTE "${XUANTIE_NAME}")
     set(WAFER_XUANTIE_ROOT "${XUANTIE_NAME}")
   else()
-    set(WAFER_XUANTIE_ROOT "${TX8_DEPS_ROOT}/${XUANTIE_NAME}")
+    set(WAFER_XUANTIE_ROOT "${WAFER_DEPS_ROOT}/${XUANTIE_NAME}")
   endif()
   include_directories(${WAFER_XUANTIE_ROOT}/riscv64-unknown-elf/include)
-  include_directories(${TX8_DEPS_ROOT}/include/bsp/xuantie_riscv_tx81/board_riscv_tx81/include)
-  include_directories(${TX8_DEPS_ROOT}/include/rtthread/include)
+  include_directories(${WAFER_DEPS_ROOT}/include/bsp/xuantie_riscv_tx81/board_riscv_tx81/include)
+  include_directories(${WAFER_DEPS_ROOT}/include/rtthread/include)
 
   # Define RISC-V specific compile options
   set(RISCV_COMPILE_OPTIONS

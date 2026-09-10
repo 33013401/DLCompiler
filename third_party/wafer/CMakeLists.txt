@@ -1,19 +1,21 @@
-if(NOT DEFINED TX8_DEPS_ROOT)
-  if(DEFINED ENV{TX8_DEPS_ROOT})
-    set(TX8_DEPS_ROOT $ENV{TX8_DEPS_ROOT})
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/WaferConfig.cmake")
+
+if(NOT DEFINED WAFER_DEPS_ROOT)
+  if(DEFINED ENV{WAFER_DEPS_ROOT})
+    set(WAFER_DEPS_ROOT $ENV{WAFER_DEPS_ROOT})
   else()
-    message(STATUS "TX8_DEPS_ROOT not set, CRT/Profiler will be disabled")
+    message(STATUS "WAFER_DEPS_ROOT not set, CRT/Profiler will be disabled")
     set(WAFER_ENABLE_CRT OFF)
   endif()
 endif()
 
-# Check if TX8_DEPS_ROOT exists to enable CRT/Profiler
-if(DEFINED TX8_DEPS_ROOT AND EXISTS ${TX8_DEPS_ROOT})
+# Check if WAFER_DEPS_ROOT exists to enable CRT/Profiler
+if(DEFINED WAFER_DEPS_ROOT AND EXISTS "${WAFER_DEPS_ROOT}")
   set(WAFER_ENABLE_CRT ON)
 else()
   set(WAFER_ENABLE_CRT OFF)
-  if(DEFINED TX8_DEPS_ROOT)
-    message(WARNING "TX8_DEPS_ROOT set but path does not exist: ${TX8_DEPS_ROOT}")
+  if(DEFINED WAFER_DEPS_ROOT)
+    message(WARNING "WAFER_DEPS_ROOT set but path does not exist: ${WAFER_DEPS_ROOT}")
   endif()
 endif()
 # Enable ccache if available
@@ -60,16 +62,16 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/crt/include)
 
-if(NOT DEFINED WAFER_TX8_INCLUDE_DIR OR
-   NOT EXISTS "${WAFER_TX8_INCLUDE_DIR}/instr_def.h")
+if(NOT DEFINED WAFER_SDK_INCLUDE_DIR OR
+   NOT EXISTS "${WAFER_SDK_INCLUDE_DIR}/instr_def.h")
   message(FATAL_ERROR
-    "WAFER_TX8_INCLUDE_DIR must contain instr_def.h for Wafer lowering")
+    "WAFER_SDK_INCLUDE_DIR must contain instr_def.h for Wafer lowering")
 endif()
-include_directories(${WAFER_TX8_INCLUDE_DIR})
+include_directories(${WAFER_SDK_INCLUDE_DIR})
 
-# TX8_DEPS_ROOT include only if CRT enabled
+# WAFER_DEPS_ROOT include only if CRT enabled
 if(WAFER_ENABLE_CRT)
-  include_directories(${TX8_DEPS_ROOT}/include)
+  include_directories(${WAFER_DEPS_ROOT}/include)
 endif()
 
 # FLIR (FlagTree Intermediate Representation) as local submodule

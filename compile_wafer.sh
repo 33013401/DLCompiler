@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+WAFER_SDK_INCLUDE_DIR=${WAFER_SDK_INCLUDE_DIR:-${WAFER_TX8_INCLUDE_DIR:-}}
+
+
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -9,7 +14,7 @@ BUILD_DIR=${WAFER_BUILD_DIR:-$WAFER_DIR/build_manual}
 INSTALL_DIR="$BUILD_DIR/install"
 WHEEL_DIR="$BUILD_DIR/wheel"
 BUILD_TYPE=${BUILD_TYPE:-Release}
-WAFER_TX8_INCLUDE_DIR=${WAFER_TX8_INCLUDE_DIR:-$SCRIPT_DIR/../../tx8_deps/include}
+WAFER_SDK_INCLUDE_DIR=${WAFER_SDK_INCLUDE_DIR:-$SCRIPT_DIR/../../tx8_deps/include}
 
 if [[ ${1:-} == "--clean" ]]; then
     rm -rf "$BUILD_DIR"
@@ -32,9 +37,9 @@ if [[ ! -f "$SCRIPT_DIR/third_party/ascendnpu-ir/CMakeLists.txt" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$WAFER_TX8_INCLUDE_DIR/instr_def.h" ]]; then
-    echo "ERROR: instr_def.h not found under $WAFER_TX8_INCLUDE_DIR" >&2
-    echo "Set WAFER_TX8_INCLUDE_DIR to the TX8 compiler header directory" >&2
+if [[ ! -f "$WAFER_SDK_INCLUDE_DIR/instr_def.h" ]]; then
+    echo "ERROR: instr_def.h not found under $WAFER_SDK_INCLUDE_DIR" >&2
+    echo "Set WAFER_SDK_INCLUDE_DIR to the TX8 compiler header directory" >&2
     exit 1
 fi
 
@@ -67,14 +72,14 @@ cmake_args=(
     -DTRITON_BUILD_TUTORIALS=OFF
     -DDICP_WAFER_COMBINED_BUILD=ON
     -DWAFER_USE_EXTERNAL_TLE=OFF
-    -DWAFER_TX8_INCLUDE_DIR="$WAFER_TX8_INCLUDE_DIR"
+    -DWAFER_SDK_INCLUDE_DIR="$WAFER_SDK_INCLUDE_DIR"
 )
 
-if [[ -n ${TX8_DEPS_ROOT:-} && -d $TX8_DEPS_ROOT ]]; then
-    cmake_args+=("-DTX8_DEPS_ROOT=$TX8_DEPS_ROOT")
+if [[ -n ${WAFER_DEPS_ROOT:-} && -d $WAFER_DEPS_ROOT ]]; then
+    cmake_args+=("-DWAFER_DEPS_ROOT=$WAFER_DEPS_ROOT")
 else
-    unset TX8_DEPS_ROOT
-    cmake_args+=("-U" "TX8_DEPS_ROOT")
+    unset WAFER_DEPS_ROOT TX8_DEPS_ROOT
+    cmake_args+=("-DWAFER_DEPS_ROOT=" "-U" "TX8_DEPS_ROOT")
 fi
 
 export DICP_BACKEND=wafer
@@ -87,7 +92,7 @@ echo "Kernel acceptance backend: $DICP_BACKEND"
 cmake "${cmake_args[@]}"
 
 cmake --build "$BUILD_DIR" --target wafer-opt libtriton.so --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-8}"
-if [[ -n ${TX8_DEPS_ROOT:-} && -d $TX8_DEPS_ROOT ]]; then
+if [[ -n ${WAFER_DEPS_ROOT:-} && -d $WAFER_DEPS_ROOT ]]; then
     cmake --build "$BUILD_DIR" --target vr --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-8}"
 fi
 

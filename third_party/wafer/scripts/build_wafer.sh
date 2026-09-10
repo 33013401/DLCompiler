@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Accept legacy configuration names; project code uses WAFER_* names.
+WAFER_DEPS_ROOT=${WAFER_DEPS_ROOT:-${TX8_DEPS_ROOT:-}}
+WAFER_RT_THREAD_SMP_ROOT=${WAFER_RT_THREAD_SMP_ROOT:-${TX8_YOC_RT_THREAD_SMP:-}}
+
+
 set -e
 
 script_path=$(realpath "$0")
@@ -10,18 +15,18 @@ if [ -z "${WORKSPACE+x}" ]; then
     WORKSPACE=$(realpath "$project_dir/..")
 fi
 
-TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
 LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 TRITON=$project_dir
 
-if [ ! -d $TX8_DEPS_ROOT ] || [ ! -d $LLVM ]; then
+if [ ! -d $WAFER_DEPS_ROOT ] || [ ! -d $LLVM ]; then
     WORKSPACE="${HOME}/.triton/wafer/"
-    TX8_DEPS_ROOT=$WORKSPACE/tx8_deps
+    WAFER_DEPS_ROOT=$WORKSPACE/tx8_deps
     LLVM=$WORKSPACE/llvm-a66376b0-ubuntu-x64
 fi
 
-if [ ! -d $TX8_DEPS_ROOT ]; then
-    echo "Error: $TX8_DEPS_ROOT not exist!" 1>&2
+if [ ! -d $WAFER_DEPS_ROOT ]; then
+    echo "Error: $WAFER_DEPS_ROOT not exist!" 1>&2
     exit 1
 fi
 
@@ -120,15 +125,17 @@ if [ -f $TRITON/.venv/bin/activate ]; then
 fi
 
 export LLVM_SYSPATH=$LLVM
-export TX8_DEPS_ROOT=$TX8_DEPS_ROOT
-export TX8_YOC_RT_THREAD_SMP=$TX8_DEPS_ROOT/tx8-yoc-rt-thread-smp
+export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT
+export TX8_DEPS_ROOT="$WAFER_DEPS_ROOT"
+export WAFER_RT_THREAD_SMP_ROOT=$WAFER_DEPS_ROOT/tx8-yoc-rt-thread-smp
+export TX8_YOC_RT_THREAD_SMP="$WAFER_RT_THREAD_SMP_ROOT"
 export FLAGTREE_BACKEND=wafer
 
 # debug
 # export USE_HOST_PROFILE=1
 # export NO_INTRNISIC_RUN=1
 
-echo "export TX8_DEPS_ROOT=$TX8_DEPS_ROOT"
+echo "export WAFER_DEPS_ROOT=$WAFER_DEPS_ROOT"
 echo "export LLVM_SYSPATH=$LLVM_SYSPATH"
 
 # synchronous temporary solution: add waitfinish after every cintrinsic exec

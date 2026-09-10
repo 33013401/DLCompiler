@@ -153,9 +153,9 @@ def get_tsm_opt_path() -> str:
 
 
 def get_wafer_deps_path(sub_name: str) -> str:
-    path = os.getenv("TX8_DEPS_ROOT", "")
+    path = os.getenv("WAFER_DEPS_ROOT") or os.getenv("TX8_DEPS_ROOT", "")
     if path == "":
-        raise Exception("TX8_DEPS_ROOT is not set.")
+        raise Exception("WAFER_DEPS_ROOT is not set.")
     return os.path.join(path, sub_name)
 
 
