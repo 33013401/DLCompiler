@@ -30,38 +30,11 @@ void __FP8E5M2_FP16(uint8_t *src, uint16_t *dst, uint32_t elem_count) {
   src = (uint8_t *)get_spm_memory_mapping_wrapper((uint64_t)src);
   dst = (uint16_t *)get_spm_memory_mapping_wrapper((uint64_t)dst);
 
+  // E5M2 and FP16 share the sign/exponent layout and exponent bias.
+  // Extending the significand preserves zero, subnormals, infinity and NaN
+  // payloads; exponent=0 must remain zero in the destination format.
   for (uint32_t i = 0; i < elem_count; i++) {
-    uint8_t fp8 = src[i];
-    uint8_t sign = fp8 & 0x80;            // Extract sign bit (10000000)
-    uint8_t exponent = (fp8 >> 2) & 0x1F; // Extract 5-bit exponent (01111100)
-    uint8_t mantissa = fp8 & 0x03;        // Extract 2-bit mantissa (00000011)
-
-    // Handle subnormal values (exponent = 0)
-    if (exponent == 0) {
-      // According to OCP spec: v = (-1)^S × 2^(1-15) × (0 + 2^(-2) × M)
-      // FP16 exponent = (1 - 15) + 15 = 1 (bias adjustment)
-      uint16_t fp16_exp = 1;
-      dst[i] = (sign << 8) | (fp16_exp << 10) | (mantissa << 8);
-      continue;
-    }
-
-    // Handle special cases (exponent = 0x1F)
-    if (exponent == 0x1F) {
-      if (mantissa == 0) {
-        // Infinity: set FP16 max exponent (0x1F) with zero mantissa
-        dst[i] = (sign << 8) | (0x1F << 10);
-      } else {
-        // NaN: set FP16 max exponent with non-zero mantissa
-        dst[i] = (sign << 8) | (0x1F << 10) | (mantissa << 8);
-      }
-      continue;
-    }
-
-    // Normal case conversion
-    // Exponent bias matches (15), extend mantissa to 10 bits
-    dst[i] = (sign << 8) |      // Sign bit (bit 15)
-             (exponent << 10) | // 5-bit exponent (bits 14-10)
-             (mantissa << 8);   // 2-bit mantissa extended to 10 bits (bits 9-8)
+    dst[i] = (uint16_t)src[i] << 8;
   }
 }
 
