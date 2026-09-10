@@ -20,7 +20,7 @@ def test_flip(M, N, dtype_str, device):
         offy = tl.arange(0, N) * M
         off2d = offx[None, :] + offy[:, None]
         x = tl.load(X + off2d)
-        x = tl.flip(x)
+        x = tl.flip(x, dim=1)
         tl.store(Z + off2d, x)
 
     x = numpy_random((N, M), dtype_str=dtype_str)

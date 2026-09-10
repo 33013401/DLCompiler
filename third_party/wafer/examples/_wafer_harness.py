@@ -1,9 +1,13 @@
 """Test-only host storage transport; kernels use the installed Wafer launcher."""
 
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
+import signal
+import shutil
+import subprocess
 import sys
 import time
 
@@ -11,6 +15,7 @@ import pytest
 
 
 STATE = {"nodeid": None, "launches": 0, "compiled": 0}
+DEVICE_ERROR = False
 
 
 def record(event, **values):
@@ -33,13 +38,40 @@ def device():
 def pytest_configure(config):
     import torch
     import triton
-    from triton.backends.dicp_triton import wafer_runtime
+    from triton.backends.dicp_triton import wafer, wafer_runtime
 
     if os.getenv("WAFER_ENABLE_RUNTIME") != "1" or os.getenv("USE_SIM_MODE") != "0":
         raise pytest.UsageError("Wafer examples require WAFER_ENABLE_RUNTIME=1 USE_SIM_MODE=0")
     repo = Path(__file__).resolve().parents[3]
     sys.path.insert(0, str(repo / "scripts"))
     from audit_wafer_elf import audit_kernel
+
+    original_tool = wafer._run_tool
+
+    def run_tool(arguments):
+        try:
+            return original_tool(arguments)
+        except subprocess.CalledProcessError:
+            # Save failing compiler inputs before its TemporaryDirectory exits.
+            event_path = os.getenv("WAFER_EXAMPLE_EVENTS")
+            if event_path:
+                inputs = [Path(arg) for arg in arguments if str(arg).endswith(".mlir") and Path(arg).is_file()]
+                digest = hashlib.sha256(b"".join(path.read_bytes() for path in inputs)).hexdigest()[:16]
+                directory = Path(event_path).parent / "failed-ir" / digest
+                directory.mkdir(parents=True, exist_ok=True)
+                replacements = {}
+                for path in inputs:
+                    destination = directory / path.name
+                    shutil.copyfile(path, destination)
+                    replacements[str(path)] = str(destination)
+                command = [replacements.get(str(arg), str(arg)) for arg in arguments]
+                if "-o" in command:
+                    command[command.index("-o") + 1] = str(directory / "reproduced.mlir")
+                (directory / "command.json").write_text(json.dumps(command, indent=2) + "\n")
+                record("compiler_error", artifact_dir=str(directory), command=command)
+            raise
+
+    wafer._run_tool = run_tool
 
     # Select the native Kuiper runtime without invoking Torch vendor operators.
     runtime = wafer_runtime._KuiperRuntime()
@@ -55,6 +87,7 @@ def pytest_configure(config):
     checked = set()
 
     def launch(launcher, *args, **kwargs):
+        global DEVICE_ERROR
         nonlocal transport
         metadata = launcher.metadata
         if metadata.kernel_path not in checked:
@@ -84,11 +117,17 @@ def pytest_configure(config):
                     buffers[key] = transport.upload(storage)
                 arguments[index] = buffers[key]["device"] + value.data_ptr() - storage.data_ptr()
             record("launch_start", kernel=metadata.name, grid=list(args[:3]))
+            previous_handler = signal.signal(signal.SIGALRM, signal.SIG_DFL)
+            previous_timer = signal.setitimer(signal.ITIMER_REAL, float(os.getenv("WAFER_EXAMPLE_LAUNCH_TIMEOUT", "30")))
             try:
                 result = original_launch(launcher, *arguments, **kwargs)
             except BaseException as error:
+                DEVICE_ERROR = True
                 record("launch_error", kernel=metadata.name, error=repr(error))
                 raise
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+                signal.signal(signal.SIGALRM, previous_handler)
             STATE["launches"] += 1
             record("launch_complete", kernel=metadata.name)
             for buffer in buffers.values():
@@ -174,3 +213,5 @@ def pytest_runtest_makereport(item, call):
     if report.when == "call" or report.failed:
         record("test_result", outcome=report.outcome, phase=report.when,
                detail=str(report.longrepr) if report.longrepr else None)
+    if DEVICE_ERROR:
+        pytest.exit("Stopping this process after a device launch error", returncode=3)

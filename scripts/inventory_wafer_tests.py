@@ -28,6 +28,8 @@ def test_functions(tree):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--execution-summary", type=Path,
+                        help="Optional run_wafer_example_suite.py summary to join with the static inventory")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # Include new files before the final stage is committed and all project test
@@ -41,6 +43,13 @@ def main():
     for node in config.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "collect_ignore" for t in node.targets):
             ignored.update(ast.literal_eval(node.value))
+    executions = {}
+    if args.execution_summary:
+        run = json.loads(args.execution_summary.read_text())
+        executions = {
+            "third_party/wafer/examples/" + result["file"]: run["execution"] + ":" + result["status"]
+            for result in run["files"]
+        }
     rows = []
     for name in sorted(files):
         path = Path(name)
@@ -52,7 +61,7 @@ def main():
         if name.startswith("test/wafer/"):
             group, status = "wafer_regression", "in_final_regression_suite"
         elif name.startswith("third_party/wafer/examples/"):
-            group, status = "wafer_examples", "not_executed_on_hardware"
+            group, status = "wafer_examples", executions.get(name, "execution_not_inferred_by_static_scan")
         elif name.startswith("third_party/wafer/third_party/"):
             group, status = "bundled_dependency_examples", "not_executed"
         else:
@@ -97,6 +106,7 @@ def main():
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         "method": "Static AST inventory; function counts do not expand parametrization or prove execution.",
         "file_scope": "Project Python test_*.py/*_test.py files from git ls-files; upstream submodules counted separately.",
+        "execution_summary": str(args.execution_summary) if args.execution_summary else None,
         "groups": {
             group: {
                 "files": sum(row["group"] == group for row in rows),

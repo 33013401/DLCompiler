@@ -121,7 +121,7 @@ def test_scan2d(op, dtype_str, shape, axis, reverse, device):
         y = rs.randint(-1, 2, shape, dtype=dtype_str)
     else:
         # x = numpy_random(shape, dtype_str=dtype_str, rs=rs)
-    x = np.arange(0, np.prod(shape), dtype=np.float32).reshape(shape)
+        x = np.arange(0, np.prod(shape), dtype=np.float32).reshape(shape)
         print(x)
         # y is just used in linear_recurrence
         y = numpy_random(shape, dtype_str=dtype_str, rs=rs)

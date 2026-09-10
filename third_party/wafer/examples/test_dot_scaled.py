@@ -4,6 +4,7 @@ import triton
 import triton.language as tl
 import itertools
 import benchmark
+from _wafer_reference import upcast_mxfp_cpu
 
 from triton._internal_testing import (
     integral_dtypes,
@@ -229,6 +230,10 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
             if transposed:
                 v = v.mT.contiguous()
             v = v.contiguous()
+            if v.device.type == "cpu":
+                v_upcast = upcast_mxfp_cpu(v, scale, type, comp_dtype)
+                assert v_upcast.isfinite().all()
+                return v_upcast.mT if transposed else v_upcast
             v_upcast = v.new_empty(scale.shape[:-1] + (32 * scale.shape[-1], ), dtype=comp_dtype)
             N = v_upcast.numel()
             BLOCK_SIZE = 512

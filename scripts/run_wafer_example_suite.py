@@ -107,6 +107,9 @@ def main():
         results.append(result)
         summary = {"execution": args.execution, "files": results, "blocked_reason": blocked}
         (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    # Include the trailing resumed files even when no new process was needed.
+    summary = {"execution": args.execution, "files": results, "blocked_reason": blocked}
+    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"Saved {args.output_dir / 'summary.json'}", flush=True)
     return int(any(result["status"] not in ("passed", "compiled") for result in results))
 
