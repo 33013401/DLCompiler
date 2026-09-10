@@ -60,6 +60,7 @@ def main() -> None:
     env["TRITON_WHEEL_NAME"] = "triton"
     env["WAFER_PREBUILT_DIR"] = str(prebuilt_dir)
     env["WAFER_LANGUAGE_DIR"] = str(ROOT / "third_party" / "wafer" / "language")
+    env["WAFER_EXPERIMENTAL_DIR"] = str(ROOT / "third_party" / "wafer" / "experimental")
     subprocess.run(
         [
             sys.executable,

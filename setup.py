@@ -585,11 +585,23 @@ def get_experimental_package_dirs():
     # even when Gluon code generation is disabled in the C++ build.
     python_root = os.path.join(triton_dir, "python")
     root = os.path.join(python_root, "triton", "experimental")
-    return {
+    package_dirs = {
         os.path.relpath(directory, python_root): directory
         for directory, _, files in os.walk(root)
         if "__init__.py" in files
     }
+    wafer_root = os.environ.get("WAFER_EXPERIMENTAL_DIR")
+    if wafer_root:
+        if not os.path.isdir(wafer_root):
+            raise FileNotFoundError(f"Wafer experimental directory not found: {wafer_root}")
+        for directory, _, files in os.walk(wafer_root):
+            if "__init__.py" not in files:
+                continue
+            package = os.path.join("triton/experimental", os.path.relpath(directory, wafer_root))
+            if package in package_dirs:
+                raise RuntimeError(f"Duplicate experimental package source: {package}")
+            package_dirs[package] = os.path.abspath(directory)
+    return package_dirs
 
 
 def get_packages(backends):
