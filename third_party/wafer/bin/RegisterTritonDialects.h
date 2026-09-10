@@ -19,8 +19,10 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/AllInterfaces.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 
 #include "magic-kernel/Conversion/TLEToMK/Passes.h"
@@ -120,7 +122,9 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
   mlir::registerAllExtensions(registry);
   mlir::linalg::registerAllDialectInterfaceImplementations(registry);
   mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);
+  mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
   mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  mlir::tensor::registerInferTypeOpInterfaceExternalModels(registry);
   mlir::mk::registerBufferizableOpInterfaceExternalModels(registry);
 
   registry.insert<
