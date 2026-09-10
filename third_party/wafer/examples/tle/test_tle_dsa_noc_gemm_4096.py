@@ -119,6 +119,7 @@ def run(m=M, n=N, k=K, device="cpu", pattern="random", seed=0):
         a, b, c, send_next_lut, ring_index_lut,
         M=m, N=n, K=k, BLOCK_M=m // TILE_NUM, BLOCK_K=k,
         SUB_N=n // TILE_NUM, TILE_NUM=TILE_NUM,
+        launch_mode="cluster",
     )
     ref = a.cpu().float() @ b.cpu().float()
     result = c.cpu().float()

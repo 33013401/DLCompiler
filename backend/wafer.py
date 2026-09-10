@@ -31,6 +31,7 @@ class WaferOptions:
     enable_fp_fusion: bool = False
     extern_libs: tuple = None
     cluster_dims: tuple = (1, 1, 1)
+    launch_mode: str = "simt"
     shared: bool = False
     allow_fp8e4nv: bool = False
     allowed_dot_input_precisions: Tuple[str, ...] = ("ieee",)
@@ -38,6 +39,12 @@ class WaferOptions:
     max_num_imprecise_acc_default: int = 0
     supported_fp8_dtypes: Tuple[str, ...] = ("fp8e5", "fp8e4b15", "fp8e4nv")
     deprecated_fp8_dtypes: Tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if self.launch_mode not in ("simt", "cluster"):
+            raise ValueError("Wafer launch_mode must be 'simt' or 'cluster'")
+        if self.launch_mode == "cluster" and tuple(self.cluster_dims) != (1, 1, 1):
+            raise ValueError("Wafer cluster launch uses one cluster: cluster_dims=(1, 1, 1)")
 
     def hash(self):
         key = "_".join(f"{name}-{value}" for name, value in self.__dict__.items())

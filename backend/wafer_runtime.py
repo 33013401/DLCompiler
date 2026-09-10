@@ -168,7 +168,20 @@ def _parse_format(type_name):
     }[_cpp_type(type_name)]
 
 
-def make_launcher(signature):
+def make_launcher(signature, launch_mode="simt"):
+    if launch_mode not in ("simt", "cluster"):
+        raise ValueError(f"Unknown Wafer launch mode: {launch_mode}")
+    cluster_check = ""
+    launch_function = "txLaunchKernelGGL"
+    cluster_argument = ""
+    if launch_mode == "cluster":
+        launch_function = "txLaunchClusterKernelGGL"
+        cluster_argument = "dim3({1, 1, 1}), "
+        cluster_check = '''
+    if (grid_y != 1 || grid_z != 1 || grid_x > 16) {
+        PyErr_SetString(PyExc_ValueError, "Wafer cluster grid must be (1..16, 1, 1)"); return NULL;
+    }
+'''
     declarations = " ".join(
         f"{_cpp_type(type_name)} arg{index};" for index, type_name in signature.items()
     )
@@ -220,6 +233,7 @@ static PyObject *launch(PyObject *, PyObject *args) {{
         PyErr_SetString(PyExc_ValueError, "Wafer grid dimensions must be nonnegative"); return NULL;
     }}
     if (grid_x == 0 || grid_y == 0 || grid_z == 0) Py_RETURN_NONE;
+    {cluster_check}
     txStream_t stream = stream_object == Py_None ? nullptr : (txStream_t)PyLong_AsVoidPtr(stream_object);
     if (PyErr_Occurred()) return NULL;
     if (enter_hook != Py_None) {{
@@ -251,7 +265,7 @@ static PyObject *launch(PyObject *, PyObject *args) {{
     void *binary = malloc(size);
     if (!binary || fread(binary, 1, size, file) != size) {{ fclose(file); free(binary); Py_DECREF(path_object); Py_DECREF(name_object); PyErr_SetString(PyExc_RuntimeError, "Failed to read Wafer kernel"); return NULL; }}
     fclose(file);
-    txError_t status = txLaunchKernelGGL(kernel_name, (uint64_t)binary, size,
+    txError_t status = {launch_function}(kernel_name, (uint64_t)binary, size, {cluster_argument}
         dim3({{(uint32_t)grid_x, (uint32_t)grid_y, (uint32_t)grid_z}}), dim3({{1, 1, 1}}),
         runtime_args.data(), runtime_args.size() * sizeof(uint64_t), 0, stream);
     if (status == TX_SUCCESS) status = txStreamSynchronize(stream);
@@ -334,7 +348,9 @@ class WaferLauncher:
         }
         self.runtime_argument_indices = tuple(signature)
         self.metadata = metadata
-        self.launch = compile_launcher(make_launcher(signature)).launch
+        self.launch = compile_launcher(
+            make_launcher(signature, getattr(metadata, "launch_mode", "simt"))
+        ).launch
 
     def __call__(self, *args, **kwargs):
         arguments = list(args)
