@@ -10,7 +10,15 @@ import struct
 import subprocess
 
 
-def audit_kernel(path, log_abi="rcs"):
+NOC_IMPORTS = frozenset({
+    "direct_dte_attach", "direct_dte_release", "direct_dte_send_async",
+    "direct_dte_wait_done", "direct_fsm_monitor_deinit", "direct_fsm_monitor_init",
+    "direct_fsm_monitor_receive", "get_spm_memory_mapping", "get_tile_spm_addr_base",
+    "set_direct_fsm_monitor_dst_addr",
+})
+
+
+def audit_kernel(path, log_abi="rcs", noc_firmware_elf=None):
     path = Path(path)
     data = path.read_bytes()
     if len(data) < 64 or data[:6] != b"\x7fELF\x02\x01":
@@ -49,6 +57,28 @@ def audit_kernel(path, log_abi="rcs"):
         if log_abi == "rcs"
         else {"tsm_ep_log", "tx8_kernel_printf", "tx8_kernel_vprintf"}
     )
+    firmware_evidence = None
+    noc_imports = undefined & NOC_IMPORTS
+    if noc_imports and noc_firmware_elf is not None:
+        firmware = Path(noc_firmware_elf)
+        # Check both the implementation and RT-Thread module export entry.
+        # This is a reference ABI check; device execution still verifies the
+        # firmware actually running on the card. No generic import override.
+        defined_text = subprocess.check_output(
+            [str(binary_dir / "llvm-nm"), "--defined-only", "--format=posix", str(firmware)],
+            text=True,
+        )
+        defined = {line.split()[0] for line in defined_text.splitlines() if line.strip()}
+        missing = {name for name in noc_imports
+                   if name not in defined or "__rtmsym_" + name not in defined}
+        if missing:
+            raise ValueError(f"NoC firmware reference lacks module exports: {sorted(missing)}")
+        allowed.update(noc_imports)
+        firmware_evidence = {
+            "path": str(firmware.resolve()),
+            "sha256": hashlib.sha256(firmware.read_bytes()).hexdigest(),
+            "module_exports": sorted(noc_imports),
+        }
     unknown = undefined - allowed
     if unknown:
         raise ValueError(f"Unreviewed firmware imports in {path}: {sorted(unknown)}")
@@ -59,6 +89,7 @@ def audit_kernel(path, log_abi="rcs"):
         "flags": flags,
         "device_log_abi": log_abi,
         "firmware_imports": sorted(undefined),
+        "noc_firmware_reference": firmware_evidence,
     }
 
 
@@ -66,9 +97,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernels", nargs="+", type=Path)
     parser.add_argument("--log-abi", choices=("tx8", "rcs"), default="rcs")
+    parser.add_argument("--noc-firmware-elf", type=Path,
+                        help="Reference firmware ELF used to verify the specific NoC module exports")
     args = parser.parse_args()
     print(
         json.dumps(
-            [audit_kernel(path, args.log_abi) for path in args.kernels], indent=2
+            [audit_kernel(path, args.log_abi, args.noc_firmware_elf) for path in args.kernels], indent=2
         )
     )

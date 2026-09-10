@@ -1,3 +1,4 @@
+import pytest
 import torch
 import triton
 import triton.language as tl
@@ -95,81 +96,49 @@ def build_ring_luts(mesh, device):
     return send_next.to(device), ring_index.to(device)
 
 
-def run():
-    device = triton.runtime.driver.active.get_active_torch_device()
-    a = torch.randn((M, K), device=device, dtype=torch.float16)
-    b = torch.randn((K, N), device=device, dtype=torch.float16)
-    c = torch.empty((M, N), device=device, dtype=torch.float16)
-
-    send_next_lut, ring_index_lut = build_ring_luts(MESH, device)
-
-    grid = (TILE_NUM, )
-    dsa_shift_n_gemm_kernel[grid](
-        a,
-        b,
-        c,
-        send_next_lut,
-        ring_index_lut,
-        M=M,
-        N=N,
-        K=K,
-        BLOCK_M=BLOCK_M,
-        BLOCK_K=BLOCK_K,
-        SUB_N=SUB_N,
-        TILE_NUM=TILE_NUM,
-    )
-    a_f32 = a.cpu().float()
-    b_f32 = b.cpu().float()
-    c_f32 = c.cpu().float()
-    ref = torch.matmul(a_f32, b_f32)
-
-    max_diff = (c_f32 - ref).abs().max().item()
-    passed = torch.allclose(c_f32, ref, atol=1e-1, rtol=1e-1)
-
-    print(f"Shift-N Ring-GEMM: M={M}, N={N}, K={K}, TILE_NUM={TILE_NUM}")
-    print(f"BLOCK_M={BLOCK_M}, BLOCK_K={BLOCK_K}, SUB_N={SUB_N}")
-    print(f"Physical ring: {TILE_PHYSICAL_RELATION}")
-    print(f"max_abs_diff = {max_diff:.6f}")
-
-    if passed:
-        print("PASS")
+def run(m=M, n=N, k=K, device="cpu", pattern="random", seed=0):
+    """Execute through the Wafer example harness; the CRT ring has 16 members."""
+    if m <= 0 or n <= 0 or m % TILE_NUM or n % TILE_NUM or k <= 0:
+        raise ValueError("M and N must be divisible by the 16-tile ring size")
+    torch.manual_seed(seed)
+    if pattern == "structured":
+        # Exact FP16 values exercise tile/shard routing without reduction noise.
+        a = torch.zeros((m, k), device=device, dtype=torch.float16)
+        a[torch.arange(m, device=device), torch.arange(m, device=device) % k] = 1
+        rows = torch.arange(k, device=device)[:, None]
+        cols = torch.arange(n, device=device)[None, :]
+        b = (((rows * 7 + cols * 11 + seed * 13) % 1024).float() / 1024).half()
+    elif pattern == "random":
+        a = torch.randn((m, k), device=device, dtype=torch.float16)
+        b = torch.randn((k, n), device=device, dtype=torch.float16)
     else:
-        print("FAIL")
-        diff = (c_f32 - ref).abs()
-        idx = diff.argmax().item()
-        r, col = idx // N, idx % N
-        print(f"  worst @ ({r},{col}): got={c_f32[r,col]:.4f}  ref={ref[r,col]:.4f}")
+        raise ValueError(f"Unknown input pattern: {pattern}")
+    c = torch.full((m, n), float("nan"), device=device, dtype=torch.float16)
+    send_next_lut, ring_index_lut = build_ring_luts(MESH, device)
+    dsa_shift_n_gemm_kernel[(TILE_NUM,)](
+        a, b, c, send_next_lut, ring_index_lut,
+        M=m, N=n, K=k, BLOCK_M=m // TILE_NUM, BLOCK_K=k,
+        SUB_N=n // TILE_NUM, TILE_NUM=TILE_NUM,
+    )
+    ref = a.cpu().float() @ b.cpu().float()
+    result = c.cpu().float()
+    tolerance = 0.0 if pattern == "structured" else 1e-1
+    torch.testing.assert_close(result, ref, atol=tolerance, rtol=tolerance)
+    max_diff = (result - ref).abs().max().item()
+    from _wafer_harness import record
+    record("numerical_pass", m=m, n=n, k=k, pattern=pattern, seed=seed, max_abs_diff=max_diff)
+    print(f"PASS NoC ring GEMM: M={m}, N={n}, K={k}, tiles={TILE_NUM}, "
+          f"pattern={pattern}, seed={seed}, max_abs_diff={max_diff:.8g}", flush=True)
 
-    # import flag_gems
-    # with flag_gems.use_gems():
-    #     ref_out = torch.mm(a, b)
-    # # Compare on CPU to avoid unsupported torch.testing ops on TXDA backend.
-    # res_out = c.detach().cpu().to(torch.float32)
-    # golden_cpu = ref_out.detach().cpu().to(torch.float32)
-    # # ref = torch.matmul(a_cpu, b_cpu)
-    # max_abs = (res_out - golden_cpu).abs().max().item()
 
-    # # diff = (c_cpu - ref).abs()
-    # # flat_idx = diff.argmax().item()
-    # # row = flat_idx // diff.shape[1]
-    # # col = flat_idx % diff.shape[1]
-    # # print(f"[DEBUG] split-k max_abs_diff={max_abs}")
-    # # print(f"[DEBUG] split-k worst_idx=({row}, {col})")
-    # # print(f"[DEBUG] c_cpu[{row},{col}]={c_cpu[row, col].item()}")
-    # # print(f"[DEBUG] ref  [{row},{col}]={ref[row, col].item()}")
-    # # print("[DEBUG] c_cpu[0:4, 0:8]=")
-    # # print(c_cpu[0:4, 0:8])
-    # # print("[DEBUG] ref[0:4, 0:8]=")
-    # # print(ref[0:4, 0:8])
-
-    # if not torch.allclose(res_out, golden_cpu, atol=1e-3, rtol=1e-2):
-    #     raise AssertionError(f"Mismatch: max_abs_diff={max_abs}")
-    # print(
-    #     f"PASS: M={M}, N={N}, K={K}, BLOCK_M={BLOCK_M}, "
-    #     f"BLOCK_K={BLOCK_K}, TILE_NUM={TILE_NUM}, "
-    #     f"mode=ring, max_abs_diff={max_abs}"
-    # )
+@pytest.mark.parametrize("m,n,k", [(256, 256, 64), (4096, 4096, 1024)])
+@pytest.mark.parametrize("pattern", ["structured", "random"])
+def test_noc_gemm(m, n, k, pattern, device):
+    for seed in (0, 1):
+        run(m, n, k, device=device, pattern=pattern, seed=seed)
 
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit("Run this example with scripts/run_wafer_example_suite.py "
+                     "--select tle/test_tle_dsa_noc_gemm_4096.py "
+                     "--output-dir /tmp/wafer-noc-results --execution hardware")

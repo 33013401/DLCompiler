@@ -91,7 +91,8 @@ def pytest_configure(config):
         nonlocal transport
         metadata = launcher.metadata
         if metadata.kernel_path not in checked:
-            audit_kernel(metadata.kernel_path, metadata.device_log_abi)
+            audit_kernel(metadata.kernel_path, metadata.device_log_abi,
+                         os.getenv("WAFER_NOC_FIRMWARE_ELF"))
             checked.add(metadata.kernel_path)
         STATE["compiled"] += 1
         record("compiled", kernel=metadata.name, path=metadata.kernel_path)
