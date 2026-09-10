@@ -2,7 +2,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../cmake/WaferConfig.cmake")
 
 cmake_minimum_required(VERSION 3.18)
 
-set(TARGET Tx81)
+set(TARGET Wafer)
 # Set TARGET from environment variable
 if(NOT DEFINED TARGET)
   if(DEFINED ENV{CRT_TARGET})
