@@ -73,12 +73,12 @@ class CompiledKernel:
             self.function,
             self.n_regs,
             self.n_spills,
-            self.n_max_threads,
         ) = commonir_backend.get_driver().utils.load_binary(
             self.name,
             self.kernel,
             self.metadata.shared,
             device,
+            mix_mode=self.metadata.mix_mode,
         )
 
     @property
