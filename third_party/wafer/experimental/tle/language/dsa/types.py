@@ -112,3 +112,15 @@ class buffered_tensor_type(base_type):
             setattr(value.type, "_tle_remote_shard_id", shard_id)
             setattr(value.type, "_tle_remote_scope", scope)
         return value, cursor + 1
+
+    def mangle(self) -> str:
+        if hasattr(self, "_tle_remote_shard_id"):
+            raise NotImplementedError("Passing a remote-marked DSA buffer between JIT functions is not supported")
+        return "dsa_" + self.memory_space + "_" + "_".join(map(str, self.shape)) + "_" + self.element_ty.mangle()
+
+    def _flatten_ir_types(self, builder, out: List[Any]) -> None:
+        if hasattr(self, "_tle_remote_shard_id"):
+            raise NotImplementedError("Passing a remote-marked DSA buffer between JIT functions is not supported")
+        if not hasattr(self, "_ir_type"):
+            raise ValueError("DSA buffer types must originate from tle.dsa.alloc")
+        out.append(self._ir_type)

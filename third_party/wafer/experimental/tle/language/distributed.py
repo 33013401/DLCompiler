@@ -7,7 +7,6 @@ from itertools import product
 from typing import Any, Iterable, Mapping, Sequence
 
 import triton.language.core as tl
-import triton.language.semantic as _semantic_mod
 
 
 def _prod(values: Iterable[int]) -> int:
@@ -455,9 +454,9 @@ def _infer_submesh_barrier_group(
     )
 
 
-def _apply_mesh_cluster_launch(mesh: device_mesh, _builder) -> tuple[int, int, int]:
+def _apply_mesh_cluster_launch(mesh: device_mesh, _semantic) -> tuple[int, int, int]:
     cluster_dims = _mesh_to_cluster_dims(mesh)
-    options = getattr(_builder, "options", None)
+    options = getattr(_semantic.builder, "options", None)
     if options is None:
         return cluster_dims
 
@@ -497,7 +496,7 @@ def _resolve_launch_axis(mesh: device_mesh, axis: str | int) -> int:
 def shard_id(
     mesh: device_mesh,
     axis: str | int,
-    _builder=None,
+    _semantic=None,
 ):
     """
     Return current shard coordinate on the given launch mesh axis.
@@ -516,65 +515,32 @@ def shard_id(
     if launch_size <= 0:
         raise ValueError(f"invalid launch mesh shape: {launch_shape}")
 
-    _apply_mesh_cluster_launch(mesh, _builder)
-    linear = tl.program_id(0, _builder=_builder)
+    _apply_mesh_cluster_launch(mesh, _semantic)
+    linear = tl.program_id(0, _semantic=_semantic)
     if launch_size > 1:
-        launch_size_t = _semantic_mod.to_tensor(launch_size, _builder)
-        linear = _semantic_mod.mod(linear, launch_size_t, _builder)
+        launch_size_t = _semantic.to_tensor(launch_size)
+        linear = _semantic.mod(linear, launch_size_t)
 
     stride = _prod(launch_shape[axis_idx + 1:]) if axis_idx + 1 < len(launch_shape) else 1
     coord = linear
     if stride > 1:
-        stride_t = _semantic_mod.to_tensor(stride, _builder)
-        coord = _semantic_mod.floordiv(coord, stride_t, _builder)
+        stride_t = _semantic.to_tensor(stride)
+        coord = _semantic.floordiv(coord, stride_t)
     dim = launch_shape[axis_idx]
     if dim > 1:
-        dim_t = _semantic_mod.to_tensor(dim, _builder)
-        coord = _semantic_mod.mod(coord, dim_t, _builder)
+        dim_t = _semantic.to_tensor(dim)
+        coord = _semantic.mod(coord, dim_t)
     return coord
 
 
 @tl.builtin
-def distributed_barrier(mesh: device_mesh | None = None, _builder=None):
-    """
-    M3 entrypoint: cluster synchronization primitive.
+def distributed_barrier(mesh: device_mesh | None = None, _semantic=None):
+    """A cross-tile barrier is not implemented by the current Wafer CRT.
 
-    `mesh` is currently accepted for API compatibility. Sub-mesh selective sync
-    is handled in a later iteration.
+    TsmWaitfinish only drains the local stream. The supported 16-tile ring
+    exchange synchronizes inside __Send; it does not rely on this operation.
     """
-    mesh = tl._unwrap_if_constexpr(mesh)
-    if mesh is not None and not isinstance(mesh, device_mesh):
-        raise TypeError(f"mesh must be device_mesh or None, got {type(mesh).__name__}")
-    subgroup = None
-    if mesh is not None:
-        cluster_dims = _apply_mesh_cluster_launch(mesh, _builder)
-        subgroup = _infer_submesh_barrier_group(mesh, cluster_dims)
-    if subgroup is not None:
-        if not hasattr(_builder, "create_distributed_barrier"):
-            raise NotImplementedError("sub-mesh distributed_barrier requires TLE builder support; "
-                                      f"inferred subgroup descriptor: rank={subgroup.rank}, "
-                                      f"shape={subgroup.shape}, axes={subgroup.axes}, size={len(subgroup.mask)}")
-        try:
-            _builder.create_distributed_barrier(
-                subgroup.kind,
-                list(subgroup.shape),
-                list(subgroup.axes),
-                list(subgroup.mask),
-            )
-            return None
-        except TypeError as exc:
-            raise NotImplementedError(
-                "sub-mesh distributed_barrier requires rebuilt TLE extension with "
-                "group-aware create_distributed_barrier(group_kind, group_shape, group_axes, group_mask); "
-                f"inferred subgroup descriptor: rank={subgroup.rank}, "
-                f"shape={subgroup.shape}, axes={subgroup.axes}, size={len(subgroup.mask)}") from exc
-    if hasattr(_builder, "create_distributed_barrier"):
-        _builder.create_distributed_barrier()
-    else:
-        # Compatibility fallback for environments where the C++ extension
-        # has not been rebuilt yet.
-        _builder.create_barrier()
-    return None
+    raise NotImplementedError("Wafer distributed_barrier needs a cross-tile CRT implementation")
 
 
 def _normalize_remote_shard_id(
@@ -634,77 +600,12 @@ def _normalize_runtime_remote_shard_id_tensor(shard_id_tensor: tl.tensor) -> tl.
     return shard_id_tensor
 
 
-def _create_remote_pointers_tensor(
-    tensor: tl.tensor,
-    shard_id_tensor: tl.tensor,
-    _builder,
-) -> tl.tensor | None:
-    remote_type = tensor.type.to_ir(_builder)
-    try:
-        remote_op = _builder.create_remote_pointers(
-            remote_type,
-            tensor.handle,
-            shard_id_tensor.handle,
-        )
-    except AttributeError:
-        return None
-    return tl.tensor(remote_op.get_result(0), tensor.type)
-
-
-def _remote_pointer(
-    tensor: tl.tensor,
-    shard_id,
-    scope: device_mesh | None = None,
-    _builder=None,
-) -> tl.tensor:
-    if not isinstance(tensor, tl.tensor):
-        raise TypeError(f"tensor must be tl.tensor, got {type(tensor).__name__}")
-    if not tensor.dtype.is_ptr():
-        raise TypeError("remote(pointer, ...) internal path requires a pointer tensor")
-    if tensor.dtype.address_space != 3:
-        raise ValueError("remote(pointer, ...) internal path requires shared-memory pointers (addrspace=3)")
-
-    # Compile-time constant shard id path.
-    if isinstance(shard_id, (int, tuple, list)):
-        linear_shard_id = _normalize_compile_time_remote_shard_id(shard_id, scope)
-        # Prefer explicit remote_pointers op so remote metadata survives
-        # downstream layout/materialization rewrites.
-        shard_id_tensor = _semantic_mod.to_tensor(int(linear_shard_id), _builder)
-        shard_id_tensor = _normalize_runtime_remote_shard_id_tensor(shard_id_tensor)
-        remote_ptr = _create_remote_pointers_tensor(tensor, shard_id_tensor, _builder)
-        if remote_ptr is not None:
-            return remote_ptr
-
-        # Compatibility fallback for older TLE extensions.
-        tensor.handle.set_attr("tle.remote_cta_id", _builder.get_int32_attr(int(linear_shard_id)))
-        return tensor
-
-    # Runtime shard id path. This materializes a TLE op that carries the
-    # runtime i32 shard id through lowering.
-    shard_id_tensor = shard_id if isinstance(shard_id, tl.tensor) else _semantic_mod.to_tensor(shard_id, _builder)
-    shard_id_tensor = _normalize_runtime_remote_shard_id_tensor(shard_id_tensor)
-
-    # Preferred path: keep remote semantics through a dedicated TLE op so the
-    # shard-id survives local_pointers lowering.
-    remote_ptr = _create_remote_pointers_tensor(tensor, shard_id_tensor, _builder)
-    if remote_ptr is not None:
-        return remote_ptr
-
-    # Compatibility fallback for older TLE extensions.
-    # Represent runtime shard_id with a marked addptr op. The lowering rewrites
-    # pointer arithmetic to use the original base pointer and consumes the
-    # runtime i32 from addptr's offset operand as cluster CTA id.
-    remote_ptr = _semantic_mod.add(tensor, shard_id_tensor, _builder)
-    remote_ptr.handle.set_attr("tle.remote_shard_id_carrier", _builder.get_unit_attr())
-    return remote_ptr
-
-
 @tl.builtin
 def remote(
     tensor,
     shard_id,
     scope: device_mesh | None = None,
-    _builder=None,
+    _semantic=None,
 ):
     """
     M3 entrypoint: mark distributed access target.
@@ -722,7 +623,7 @@ def remote(
     if scope is not None and not isinstance(scope, device_mesh):
         raise TypeError(f"scope must be device_mesh or None, got {type(scope).__name__}")
     if scope is not None:
-        _apply_mesh_cluster_launch(scope, _builder)
+        _apply_mesh_cluster_launch(scope, _semantic)
 
     # Buffered tensor path: carry remote metadata and let `local_ptr` materialize
     # remote pointers later.
@@ -736,10 +637,10 @@ def remote(
         else:
             shard_id_tensor = shard_id if isinstance(shard_id, tl.tensor) else None
             if shard_id_tensor is None:
-                if _builder is None:
+                if _semantic is None:
                     raise TypeError("runtime shard_id for remote(buffered_tensor, ...) must be scalar int32 "
                                     "and requires JIT context for materialization")
-                shard_id_tensor = _semantic_mod.to_tensor(shard_id, _builder)
+                shard_id_tensor = _semantic.to_tensor(shard_id)
             shard_id = _normalize_runtime_remote_shard_id_tensor(shard_id_tensor)
         # Keep remote metadata on buffered_tensor.type so it survives value
         # reconstruction in JIT interpreter paths (value-level attrs can drop).
