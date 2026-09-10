@@ -490,6 +490,16 @@ class BuildPy(build_py):
         output = os.path.join(output_dir, "wafer-opt")
         shutil.copy2(source, output)
         os.chmod(output, 0o755)
+        runtime_source = os.path.join(prebuilt_dir, "libvr.a")
+        if not os.path.isfile(runtime_source):
+            raise FileNotFoundError(
+                f"Prebuilt hardware runtime not found: {runtime_source}"
+            )
+        runtime_output = os.path.join(
+            self.build_lib, "triton", "backends", "dicp_triton", "lib"
+        )
+        os.makedirs(runtime_output, exist_ok=True)
+        shutil.copy2(runtime_source, os.path.join(runtime_output, "libvr.a"))
 
 
 class BuildWheel(bdist_wheel):
@@ -570,6 +580,18 @@ def get_language_extra_packages(backends):
     return list(get_language_extra_package_dirs(backends))
 
 
+def get_experimental_package_dirs():
+    # Triton 3.5's ordinary JIT binder imports the Gluon TensorDescriptor type,
+    # even when Gluon code generation is disabled in the C++ build.
+    python_root = os.path.join(triton_dir, "python")
+    root = os.path.join(python_root, "triton", "experimental")
+    return {
+        os.path.relpath(directory, python_root): directory
+        for directory, _, files in os.walk(root)
+        if "__init__.py" in files
+    }
+
+
 def get_packages(backends):
     packages = [
         "triton",
@@ -582,6 +604,7 @@ def get_packages(backends):
     ]
     packages += [f"triton/backends/{backend.name}" for backend in backends]
     packages += get_language_extra_packages(backends)
+    packages += list(get_experimental_package_dirs())
 
     return packages
 
@@ -605,6 +628,7 @@ def get_package_dir(backends):
             f"{triton_prefix_dir}/backends/{backend.name}"
         )
     package_dir.update(get_language_extra_package_dirs(backends))
+    package_dir.update(get_experimental_package_dirs())
 
     package_dir["triton/language/_utils.py"] = (
         f"{triton_patch_prefix_dir}/language/_utils.py"

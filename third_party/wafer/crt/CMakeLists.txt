@@ -102,7 +102,12 @@ else()
   set(CMAKE_SYSTEM_PROCESSOR riscv)
 
   include_directories(${TX8_DEPS_ROOT}/include)
-  include_directories(${TX8_DEPS_ROOT}/${XUANTIE_NAME}/riscv64-unknown-elf/include)
+  if(IS_ABSOLUTE "${XUANTIE_NAME}")
+    set(TX81_XUANTIE_ROOT "${XUANTIE_NAME}")
+  else()
+    set(TX81_XUANTIE_ROOT "${TX8_DEPS_ROOT}/${XUANTIE_NAME}")
+  endif()
+  include_directories(${TX81_XUANTIE_ROOT}/riscv64-unknown-elf/include)
   include_directories(${TX8_DEPS_ROOT}/include/bsp/xuantie_riscv_tx81/board_riscv_tx81/include)
   include_directories(${TX8_DEPS_ROOT}/include/rtthread/include)
 

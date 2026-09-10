@@ -10,6 +10,7 @@ PATCHES=(
     "$ROOT_DIR/patch/triton/wafer_builder_optional_gluon.patch"
     "$ROOT_DIR/patch/triton/wafer_proton_backend_filter.patch"
     "$ROOT_DIR/patch/triton/python_triton_compiler_optional_gluon_py.patch"
+    "$ROOT_DIR/patch/triton/python_triton_jit_optional_gluon.patch"
 )
 
 if [[ $(git -C "$TRITON_DIR" rev-parse HEAD) != "$TRITON_BASE_COMMIT" ]]; then

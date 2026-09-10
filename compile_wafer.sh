@@ -27,6 +27,11 @@ if [[ ! -f "$TRITON_DIR/CMakeLists.txt" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$SCRIPT_DIR/third_party/ascendnpu-ir/CMakeLists.txt" ]]; then
+    echo "ERROR: initialize the pinned AscendNPU-IR dependency: git submodule update --init third_party/ascendnpu-ir" >&2
+    exit 1
+fi
+
 if [[ ! -f "$WAFER_TX8_INCLUDE_DIR/instr_def.h" ]]; then
     echo "ERROR: instr_def.h not found under $WAFER_TX8_INCLUDE_DIR" >&2
     echo "Set WAFER_TX8_INCLUDE_DIR to the TX8 compiler header directory" >&2
@@ -81,7 +86,10 @@ echo "Configuring Triton with plugins: $plugin_dirs"
 echo "Kernel acceptance backend: $DICP_BACKEND"
 cmake "${cmake_args[@]}"
 
-cmake --build "$BUILD_DIR" --target wafer-opt libtriton.so --parallel
+cmake --build "$BUILD_DIR" --target wafer-opt libtriton.so --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-8}"
+if [[ -n ${TX8_DEPS_ROOT:-} && -d $TX8_DEPS_ROOT ]]; then
+    cmake --build "$BUILD_DIR" --target vr --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-8}"
+fi
 
 echo "Wafer build completed:"
 echo "  wafer-opt:   $BUILD_DIR/third_party/wafer/bin/wafer-opt"

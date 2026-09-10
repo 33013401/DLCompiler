@@ -30,6 +30,10 @@ def main() -> None:
         build_dir / "third_party" / "wafer" / "bin" / "wafer-opt",
         "wafer-opt",
     )
+    runtime_archive = require_file(
+        build_dir / "third_party" / "wafer" / "crt" / "lib" / "libvr.a",
+        "hardware vendor runtime libvr.a (build with USE_SIM_MODE=0)",
+    )
     subprocess.run(
         ["bash", str(ROOT / "scripts" / "apply_wafer_triton_patches.sh")],
         check=True,
@@ -40,9 +44,9 @@ def main() -> None:
     prebuilt_dir.mkdir(parents=True, exist_ok=True)
     links = {
         prebuilt_dir / "libtriton.so": build_dir / "libtriton.so",
-        prebuilt_dir / "wafer-opt": (
-            build_dir / "third_party" / "wafer" / "bin" / "wafer-opt"
-        ),
+        prebuilt_dir
+        / "wafer-opt": (build_dir / "third_party" / "wafer" / "bin" / "wafer-opt"),
+        prebuilt_dir / "libvr.a": runtime_archive,
     }
     for destination, source in links.items():
         destination.unlink(missing_ok=True)
