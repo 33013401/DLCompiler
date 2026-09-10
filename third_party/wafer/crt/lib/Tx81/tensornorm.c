@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::TensorNorm see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::TensorNorm see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

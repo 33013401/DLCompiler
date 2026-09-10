@@ -40,7 +40,7 @@ echo ""
 ls -lah "$DUMP_DIR"
 echo ""
 echo "Common files:"
-for f in tt_0.mlir core_0.mlir tx_0.mlir ll_0.mlir ll_0.ir kernel_0.ll kernel_0.o cmds.txt; do
+for f in tt_0.mlir core_0.mlir wafer_0.mlir ll_0.mlir ll_0.ir kernel_0.ll kernel_0.o cmds.txt; do
     if [ -e "$DUMP_DIR/$f" ]; then
         echo "  $DUMP_DIR/$f"
     fi

@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Tanh see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Tanh see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

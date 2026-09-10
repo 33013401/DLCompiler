@@ -17,7 +17,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "wafer-tx81/Conversion/LinalgFusion/LinalgFusion.h"
+#include "wafer/Conversion/LinalgFusion/LinalgFusion.h"
 #include <memory>
 #include <mlir/IR/DialectRegistry.h>
 #include <mlir/Transforms/Passes.h>
@@ -30,7 +30,7 @@ namespace mlir {
 namespace triton {
 
 #define GEN_PASS_DEF_LINALGFUSION
-#include "wafer-tx81/Conversion/LinalgFusion/Passes.h.inc"
+#include "wafer/Conversion/LinalgFusion/Passes.h.inc"
 } // namespace triton
 } // namespace mlir
 

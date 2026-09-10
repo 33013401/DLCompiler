@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::GeluTanh see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::GeluTanh see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

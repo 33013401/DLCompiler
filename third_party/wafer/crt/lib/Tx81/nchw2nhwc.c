@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Nchw2nhwc see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Nchw2nhwc see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

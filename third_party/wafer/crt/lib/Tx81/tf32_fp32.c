@@ -4,7 +4,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::TF32_FP32 see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::TF32_FP32 see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

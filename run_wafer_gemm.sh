@@ -107,7 +107,7 @@ Compiler artifacts:
 GEMM artifacts:
   TTIR:         $OUTPUT_DIR/ttir.mlir
   CoreIR:       $OUTPUT_DIR/coreir.mlir
-  TXIR:         $OUTPUT_DIR/txir.mlir
+  Wafer IR:         $OUTPUT_DIR/wafer_ir.mlir
   LLVM dialect: $OUTPUT_DIR/llvm.mlir
   LLVM IR:      $OUTPUT_DIR/kernel.ll
   object:       $OUTPUT_DIR/kernel.o

@@ -43,7 +43,7 @@ The default GEMM artifacts are:
 ```text
 /tmp/wafer-gemm-run/ttir.mlir
 /tmp/wafer-gemm-run/coreir.mlir
-/tmp/wafer-gemm-run/txir.mlir
+/tmp/wafer-gemm-run/wafer_ir.mlir
 /tmp/wafer-gemm-run/llvm.mlir
 /tmp/wafer-gemm-run/kernel.ll
 /tmp/wafer-gemm-run/kernel.o

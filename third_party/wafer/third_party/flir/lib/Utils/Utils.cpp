@@ -147,8 +147,8 @@ bool isOperandMemorySpaceSPM(Value operand) {
   return false;
 }
 
-// Function to declare Tx81 runtime function
-Value declareTx81Function(ModuleOp module, OpBuilder &builder, Location loc,
+// Function to declare Wafer runtime function
+Value declareWaferRuntimeFunction(ModuleOp module, OpBuilder &builder, Location loc,
                           StringRef name, Type resultType,
                           ArrayRef<Type> argumentTypes) {
   // Check if the function already exists

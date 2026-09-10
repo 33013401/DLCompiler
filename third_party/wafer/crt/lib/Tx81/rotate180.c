@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Rotate180 see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Rotate180 see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

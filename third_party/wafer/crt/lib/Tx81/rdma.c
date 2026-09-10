@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Rdma, see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Rdma, see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

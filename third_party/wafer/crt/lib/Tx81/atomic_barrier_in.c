@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::AtomicBarrierIn see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::AtomicBarrierIn see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

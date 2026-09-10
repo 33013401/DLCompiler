@@ -478,7 +478,7 @@ def GeluOp : MKOp<"gelu", [DestinationStyleOpInterface]> {
   let arguments = (
     ins
     TensorOrMemref:$src,
-    Optional<TensorOrMemref>:$imm, // WORKAROUND for tx backend
+    Optional<TensorOrMemref>:$imm, // WORKAROUND for wafer backend
     // buffer for store result
     Arg<TensorOrMemref, "the target memref", [MemWrite]>:$zeroes,
     BoolAttr:$is_atomic,

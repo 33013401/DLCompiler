@@ -153,31 +153,31 @@ def ttir_to_coreir(module):
     )
 
 
-def coreir_to_txir(module):
+def coreir_to_wafer_ir(module):
     return _run_wafer_stage(
         module,
         [
             "--spmd-allocate-shared-memory",
             "--expand-strided-metadata",
             "--lower-affine",
-            "--mk-to-tx81",
+            "--mk-to-wafer",
             "--cse",
         ],
         "coreir.mlir",
-        "txir.mlir",
+        "wafer_ir.mlir",
     )
 
 
-def txir_to_llir(module, metadata):
+def wafer_ir_to_llir(module, metadata):
     with tempfile.TemporaryDirectory() as tmpdir:
-        source_path = Path(tmpdir) / "txir.mlir"
+        source_path = Path(tmpdir) / "wafer_ir.mlir"
         llvm_mlir_path = Path(tmpdir) / "llvm.mlir"
         llvm_ir_path = Path(tmpdir) / "kernel.ll"
         source_path.write_text(str(module), encoding="utf-8")
         wafer_arguments = [
             _find_wafer_opt(),
             str(source_path),
-            "--tx81-memref-to-llvm",
+            "--wafer-memref-to-llvm",
             "--addr-to-llvm",
             "--convert-scf-to-cf",
             "--convert-math-to-llvm",
@@ -187,7 +187,7 @@ def txir_to_llir(module, metadata):
             "--expand-strided-metadata",
             "--finalize-memref-to-llvm",
             "--kernel-arg-buffer",
-            "--tx81-to-llvm",
+            "--wafer-to-llvm",
             "--convert-arith-to-llvm",
             "--reconcile-unrealized-casts",
             "--canonicalize",
@@ -519,8 +519,8 @@ class WaferBackend(BaseBackend):
             source, metadata, options
         )
         stages["coreir"] = lambda source, metadata: ttir_to_coreir(source)
-        stages["txir"] = lambda source, metadata: coreir_to_txir(source)
-        stages["llir"] = lambda source, metadata: txir_to_llir(source, metadata)
+        stages["wafer_ir"] = lambda source, metadata: coreir_to_wafer_ir(source)
+        stages["llir"] = lambda source, metadata: wafer_ir_to_llir(source, metadata)
         if self.runtime:
             stages["so"] = lambda source, metadata: object_to_binary(
                 llir_to_object(source, metadata, self.simulator),
@@ -535,7 +535,7 @@ class WaferBackend(BaseBackend):
 
     def get_module_map(self) -> Dict[str, ModuleType]:
         try:
-            from triton.language.extra.txda import libdevice
+            from triton.language.extra.wafer import libdevice
 
             return {"triton.language.extra.libdevice": libdevice}
         except ImportError:

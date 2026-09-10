@@ -24,7 +24,7 @@ struct DsaAllocToMemRefPattern : public OpRewritePattern<mlir::dsa::AllocOp> {
     auto memrefTy = dyn_cast<MemRefType>(op.getResult().getType());
     if (!memrefTy)
       return failure();
-    // tx81-memref-to-llvm expects integer/default memref address spaces.
+    // wafer-memref-to-llvm expects integer/default memref address spaces.
     // Canonicalize away non-integer memory-space attrs (e.g. "local").
     if (Attribute ms = memrefTy.getMemorySpace(); ms && !isa<IntegerAttr>(ms)) {
       memrefTy = MemRefType::get(memrefTy.getShape(), memrefTy.getElementType(),

@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Img2col see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Img2col see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

@@ -17,7 +17,7 @@ bool isPtrTypeLike(Type t);
 // scalar value can be extracted, a nullptr is returned.
 Value getScalarValue(Value operand, Location loc, OpBuilder &builder);
 
-Value declareTx81Function(ModuleOp module, OpBuilder &builder, Location loc,
+Value declareWaferRuntimeFunction(ModuleOp module, OpBuilder &builder, Location loc,
                           StringRef name, Type resultType,
                           ArrayRef<Type> argumentTypes);
 

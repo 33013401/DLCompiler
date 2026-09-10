@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::SqrtVVOp see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::SqrtVVOp see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Leakyrelu see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Leakyrelu see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

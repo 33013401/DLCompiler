@@ -67,7 +67,7 @@ backend = backends["dicp_triton"].compiler(target)
 backend.load_dialects(libtriton.ir.context())
 
 import triton.language.extra.deeplink  # noqa: F401, E402
-import triton.language.extra.txda  # noqa: F401, E402
+import triton.language.extra.wafer  # noqa: F401, E402
 
 with tempfile.TemporaryDirectory() as tmpdir:
     source = Path(tmpdir) / "wafer_install_check.ttir"

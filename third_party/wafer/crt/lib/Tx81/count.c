@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Count see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Count see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

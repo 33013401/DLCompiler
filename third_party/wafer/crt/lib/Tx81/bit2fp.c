@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Bit2Fp see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Bit2Fp see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

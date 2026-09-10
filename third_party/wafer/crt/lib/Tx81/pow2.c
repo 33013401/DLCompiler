@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Pow2 see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Pow2 see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

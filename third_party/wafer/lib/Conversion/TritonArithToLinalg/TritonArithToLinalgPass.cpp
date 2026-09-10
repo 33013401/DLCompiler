@@ -151,7 +151,7 @@ public:
         });
 
     if (pidsToFuncArgs) {
-      // Need use tx interface to get pid.
+      // Need use wafer interface to get pid.
       target.addIllegalOp<
           /* triton::GetProgramIdOp, */ triton::GetNumProgramsOp>();
     }

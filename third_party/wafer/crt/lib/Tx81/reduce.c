@@ -5,13 +5,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::TsmReduce, see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::TsmReduce, see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 
 #include "op_reduce_mul_impl.h"
 #include "tx81.h"
-// The arguments list is aligned with TsmConv in Tx81Ops.td
+// The arguments list is aligned with TsmConv in WaferOps.td
 void __ReduceSum(uint64_t *src, uint64_t *dst, uint32_t dim, uint16_t src_n,
                  uint16_t src_h, uint16_t src_w, uint16_t src_c, uint16_t fmt) {
   INTRNISIC_RUN_SWITCH;

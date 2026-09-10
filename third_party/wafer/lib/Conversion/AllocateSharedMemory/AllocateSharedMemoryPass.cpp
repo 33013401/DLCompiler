@@ -10,7 +10,7 @@
 #include "magic-kernel/Dialect/IR/MagicKernelDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "triton/Analysis/Allocation.h"
-#include "wafer-tx81/Conversion/AllocateSharedMemory/Passes.h"
+#include "wafer/Conversion/AllocateSharedMemory/Passes.h"
 
 #define DEBUG_TYPE "allocate-shared-memory"
 
@@ -18,7 +18,7 @@ using namespace mlir;
 
 namespace mlir::triton::alloc {
 #define GEN_PASS_DEF_ALLOCATESHAREDMEMORY
-#include "wafer-tx81/Conversion/AllocateSharedMemory/Passes.h.inc"
+#include "wafer/Conversion/AllocateSharedMemory/Passes.h.inc"
 
 } // namespace mlir::triton::alloc
 

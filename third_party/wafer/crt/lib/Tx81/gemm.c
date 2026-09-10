@@ -5,13 +5,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::TsmGemm, see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::TsmGemm, see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 
 #include "tx81.h"
 
-// The arguments list is aligned with TsmConv in Tx81Ops.td
+// The arguments list is aligned with TsmConv in WaferOps.td
 void __Gemm(int64_t *srcA, int64_t *srcB, int64_t *srcBias, int64_t *dst,
             int32_t *dims, bool enPsum, int64_t *psum, bool enTransA,
             bool enTransB, int64_t batchSizeA, int64_t batchSizeB,

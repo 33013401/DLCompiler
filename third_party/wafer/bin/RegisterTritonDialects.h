@@ -39,28 +39,46 @@
 #include "triton-shared/Conversion/UnstructuredToMemref/Passes.h"
 #include "triton-shared/Dialect/TritonStructured/IR/TritonStructuredDialect.h"
 #include "triton-shared/Dialect/TritonTilingExt/IR/TritonTilingExtDialect.h"
-#include "wafer-tx81/Conversion/LinalgFusion/Passes.h"
-#include "wafer-tx81/Conversion/LinalgTiling/Passes.h"
-#include "wafer-tx81/Dialect/IR/Tx81Dialect.h"
+#include "wafer/Conversion/LinalgFusion/Passes.h"
+#include "wafer/Conversion/LinalgTiling/Passes.h"
+#include "wafer/Dialect/IR/WaferDialect.h"
 
 #include "magic-kernel/Conversion/CoreDialectsToMK/Passes.h"
 #include "magic-kernel/Conversion/LegalizeTensorFormLoops/Passes.h"
 #include "magic-kernel/Conversion/LinalgToMK/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
-#include "wafer-tx81/Conversion/AllocateSharedMemory/Passes.h"
-#include "wafer-tx81/Conversion/ExportKernelSymbols/Passes.h"
-#include "wafer-tx81/Conversion/MKToTx81/Passes.h"
-#include "wafer-tx81/Conversion/Tx81MemrefToLLVM/Passes.h"
-#include "wafer-tx81/Conversion/Tx81ToLLVM/KernelArgBufferPass.h"
-#include "wafer-tx81/Conversion/Tx81ToLLVM/Passes.h"
+#include "wafer/Conversion/AllocateSharedMemory/Passes.h"
+#include "wafer/Conversion/ExportKernelSymbols/Passes.h"
+#include "wafer/Conversion/MKToWafer/Passes.h"
+#include "wafer/Conversion/WaferMemrefToLLVM/Passes.h"
+#include "wafer/Conversion/WaferToLLVM/KernelArgBufferPass.h"
+#include "wafer/Conversion/WaferToLLVM/Passes.h"
 
 #include "magic-kernel/Transforms/BufferizableOpInterfaceImpl.h"
 
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 
 inline void registerTritonDialects(mlir::DialectRegistry &registry) {
+  // Legacy command names consume the canonical Wafer IR and use the same passes.
+  static mlir::PassPipelineRegistration<> legacyMKToWafer(
+      "mk-to-tx81", "Compatibility alias for mk-to-wafer",
+      [](mlir::OpPassManager &pm) {
+        pm.addPass(mlir::triton::createMKToWaferPass());
+      });
+  static mlir::PassPipelineRegistration<> legacyWaferToLLVM(
+      "tx81-to-llvm", "Compatibility alias for wafer-to-llvm",
+      [](mlir::OpPassManager &pm) {
+        pm.addPass(mlir::triton::createWaferToLLVMPass());
+      });
+  static mlir::PassPipelineRegistration<> legacyWaferMemrefToLLVM(
+      "tx81-memref-to-llvm", "Compatibility alias for wafer-memref-to-llvm",
+      [](mlir::OpPassManager &pm) {
+        pm.addPass(mlir::triton::createWaferMemrefToLLVMPass());
+      });
   mlir::registerAllPasses();
     mlir::triton::registerTritonPasses();
   mlir::registerLinalgPasses();
@@ -83,7 +101,7 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
   mlir::registerLLVMDIScope();
 
   // Core dialects to MK layer conversion passes
-  mlir::triton::registerTx81MemrefToLLVMPass();
+  mlir::triton::registerWaferMemrefToLLVMPass();
   mlir::triton::registerLinalgToMKPass();
   mlir::triton::registerCoreDialectsToMKPass();
   mlir::triton::registerLegalizeTensorFormLoopsPass();
@@ -92,9 +110,9 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
   mlir::triton::registerLinalgFusionPass();
 
   // Wafer specific conversion passes
-  mlir::triton::registerMKToTx81Pass();
+  mlir::triton::registerMKToWaferPass();
   mlir::triton::alloc::registerAllocateSharedMemoryPass();
-  mlir::triton::registerTx81ToLLVMPass();
+  mlir::triton::registerWaferToLLVMPass();
   mlir::triton::registerExportKernelSymbols();
   mlir::triton::registerKernelArgBufferPass();
 
@@ -115,6 +133,6 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
       mlir::linalg::LinalgDialect, mlir::func::FuncDialect,
       mlir::tensor::TensorDialect, mlir::memref::MemRefDialect,
       mlir::affine::AffineDialect, mlir::bufferization::BufferizationDialect,
-      mlir::mk::MagicKernelDialect, mlir::tx::Tx81Dialect,
+      mlir::mk::MagicKernelDialect, mlir::wafer::WaferDialect,
       mlir::addr::AddressDialect, mlir::dsa::DsaDialect>();
 }

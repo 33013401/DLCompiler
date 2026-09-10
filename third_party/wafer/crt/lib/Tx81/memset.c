@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::Memset see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::Memset see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

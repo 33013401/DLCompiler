@@ -5,7 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::negVVOp see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::negVVOp see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

@@ -3,6 +3,6 @@
 from .compiler import WaferExternalBackend
 from .driver import WaferExternalDriver
 from .logger_config import setup_logger
-from . import txda_tools
+from . import wafer_tools
 
-__all__ = ["WaferExternalBackend", "WaferExternalDriver", "setup_logger", "txda_tools"]
+__all__ = ["WaferExternalBackend", "WaferExternalDriver", "setup_logger", "wafer_tools"]

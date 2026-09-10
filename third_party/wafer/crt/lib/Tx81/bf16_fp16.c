@@ -4,7 +4,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::BF16_FP16 see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::BF16_FP16 see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 

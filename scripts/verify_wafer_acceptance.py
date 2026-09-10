@@ -64,7 +64,7 @@ def main():
     backend = backends["dicp_triton"].compiler(target)
     backend.load_dialects(libtriton.ir.context())
 
-    import triton.language.extra.txda  # noqa: F401
+    import triton.language.extra.wafer  # noqa: F401
 
     @triton.jit
     def wafer_gemm(
@@ -108,7 +108,7 @@ def main():
         constexprs={"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64},
     )
     kernel = triton.compile(source, target=target)
-    required_stages = {"ttir", "coreir", "txir", "llir"}
+    required_stages = {"ttir", "coreir", "wafer_ir", "llir"}
     missing_stages = sorted(required_stages.difference(kernel.asm))
     if missing_stages:
         raise RuntimeError(f"Wafer compilation is missing stages: {missing_stages}")

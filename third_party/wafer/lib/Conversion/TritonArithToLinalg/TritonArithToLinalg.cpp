@@ -53,7 +53,7 @@ void mlir::triton::populateTritonArithToLinalgConversionPatterns(
     RewritePatternSet &patterns) {
 
   if (pidsToFuncArgs) {
-    // Need use tx interface to get pid.
+    // Need use wafer interface to get pid.
     patterns.add</* GetProgramIDConverter ,*/ GetNumProgramsConverter>(
         patterns.getContext());
   }

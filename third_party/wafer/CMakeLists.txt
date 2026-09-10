@@ -118,10 +118,10 @@ if(TRITON_BUILD_PYTHON_MODULE)
   # - TritonToLinalg, TritonToStructured: Conversion passes
   add_triton_plugin(TritonWafer ${CMAKE_CURRENT_SOURCE_DIR}/python/triton_wafer.cc
                     LINK_LIBS TritonSharedAnalysis TritonSharedAnalysisStructured MagicKernelIR
-                    Tx81IR TritonTilingExtIR TritonStructuredIR TritonToCoreDialects
+                    WaferIR TritonTilingExtIR TritonStructuredIR TritonToCoreDialects
                     TritonToLinalg TritonToStructured StructuredToMemref LinalgToMagicKernel
-                    TritonArithToLinalg CoreDialectsToMK Tx81ToLLVM AllocateSharedMemory ExportKernelSymbols
-                    Tx81MemrefToLLVM MKToTx81
+                    TritonArithToLinalg CoreDialectsToMK WaferToLLVM AllocateSharedMemory ExportKernelSymbols
+                    WaferMemrefToLLVM MKToWafer
                     MLIRFuncAllExtensions)
   target_link_libraries(TritonWafer PRIVATE Python3::Module pybind11::headers)
 endif()

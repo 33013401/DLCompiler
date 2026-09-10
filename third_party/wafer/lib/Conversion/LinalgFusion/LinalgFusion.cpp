@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "wafer-tx81/Conversion/LinalgFusion/LinalgFusion.h"
+#include "wafer/Conversion/LinalgFusion/LinalgFusion.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/IR/BuiltinTypes.h"

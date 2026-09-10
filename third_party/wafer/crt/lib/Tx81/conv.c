@@ -5,13 +5,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runtime API of MLIR operation tx::TsmConv, see Tx81Ops.td for detail.
+// Runtime API of MLIR operation tx::TsmConv, see WaferOps.td for detail.
 //
 //===----------------------------------------------------------------------===//
 
 #include "tx81.h"
 
-// The arguments list is aligned with TsmConv in Tx81Ops.td
+// The arguments list is aligned with TsmConv in WaferOps.td
 void __Conv(int64_t opType, int64_t *srcAct, int64_t *srcActDims,
             int64_t *weight, int64_t *weightDims, bool enBias, int64_t *bias,
             bool enNegScale, int64_t *negScale, bool enPosScale,

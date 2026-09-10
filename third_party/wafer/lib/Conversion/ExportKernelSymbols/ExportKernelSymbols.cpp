@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "wafer-tx81/Conversion/ExportKernelSymbols/ExportKernelSymbols.h"
+#include "wafer/Conversion/ExportKernelSymbols/ExportKernelSymbols.h"
 #include "magic-kernel/Dialect/IR/MagicKernelDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
-#include "wafer-tx81/Dialect/IR/Tx81Dialect.h"
+#include "wafer/Dialect/IR/WaferDialect.h"
 #include "llvm/Support/Debug.h"
 #include <memory>
 #include <mlir/IR/DialectRegistry.h>
@@ -25,7 +25,7 @@ using namespace mlir;
 using namespace triton;
 
 #define GEN_PASS_CLASSES
-#include "wafer-tx81/Conversion/ExportKernelSymbols/Passes.h.inc"
+#include "wafer/Conversion/ExportKernelSymbols/Passes.h.inc"
 
 namespace {
 
@@ -33,7 +33,7 @@ class ExportKernelSymbolsPass
     : public ExportKernelSymbolsBase<ExportKernelSymbolsPass> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<LLVM::LLVMDialect, tx::Tx81Dialect>();
+    registry.insert<LLVM::LLVMDialect, wafer::WaferDialect>();
   }
 
   void runOnOperation() override {

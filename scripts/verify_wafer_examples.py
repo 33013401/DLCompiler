@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import functools
 import os
 import subprocess
 import tempfile
@@ -27,7 +28,20 @@ def parse_args():
     return parser.parse_args()
 
 
+@functools.lru_cache(maxsize=None)
+def uses_wafer_pass_names(wafer_opt):
+    help_text = subprocess.check_output([str(wafer_opt), "--help"], text=True)
+    return "--mk-to-wafer" in help_text
+
+
 def run_stage(wafer_opt, source, output, arguments):
+    if not uses_wafer_pass_names(wafer_opt):
+        legacy = {
+            "--mk-to-wafer": "--mk-to-tx81",
+            "--wafer-memref-to-llvm": "--tx81-memref-to-llvm",
+            "--wafer-to-llvm": "--tx81-to-llvm",
+        }
+        arguments = [legacy.get(argument, argument) for argument in arguments]
     subprocess.run(
         [str(wafer_opt), str(source), *arguments, "-o", str(output)],
         check=True,
@@ -36,7 +50,7 @@ def run_stage(wafer_opt, source, output, arguments):
 
 def lower_case(wafer_opt, ttir_path, output_dir):
     coreir_path = output_dir / "coreir.mlir"
-    wafer_ir_path = output_dir / "txir.mlir"
+    wafer_ir_path = output_dir / "wafer_ir.mlir"
     llvm_path = output_dir / "llvm.mlir"
     run_stage(
         wafer_opt,
@@ -60,14 +74,14 @@ def lower_case(wafer_opt, ttir_path, output_dir):
         wafer_opt,
         coreir_path,
         wafer_ir_path,
-        ["--spmd-allocate-shared-memory", "--expand-strided-metadata", "--lower-affine", "--mk-to-tx81", "--cse"],
+        ["--spmd-allocate-shared-memory", "--expand-strided-metadata", "--lower-affine", "--mk-to-wafer", "--cse"],
     )
     run_stage(
         wafer_opt,
         wafer_ir_path,
         llvm_path,
         [
-            "--tx81-memref-to-llvm",
+            "--wafer-memref-to-llvm",
             "--addr-to-llvm",
             "--convert-scf-to-cf",
             "--convert-math-to-llvm",
@@ -77,7 +91,7 @@ def lower_case(wafer_opt, ttir_path, output_dir):
             "--expand-strided-metadata",
             "--finalize-memref-to-llvm",
             "--kernel-arg-buffer",
-            "--tx81-to-llvm",
+            "--wafer-to-llvm",
             "--convert-arith-to-llvm",
             "--reconcile-unrealized-casts",
             "--canonicalize",

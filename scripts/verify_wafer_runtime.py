@@ -54,7 +54,7 @@ def compile_kernel(fn, signature, constants):
     source = ASTSource(fn=fn, signature=signature, constexprs=constants)
     started = time.monotonic()
     kernel = triton.compile(source, target=GPUTarget("wafer", "tx81", 32))
-    assert list(kernel.asm) == ["source", "ttir", "coreir", "txir", "llir", "so"]
+    assert list(kernel.asm) == ["source", "ttir", "coreir", "wafer_ir", "llir", "so"]
     audit_kernel(kernel.metadata.kernel_path, kernel.metadata.device_log_abi)
     print(
         f"compiled {kernel.name} in {time.monotonic() - started:.3f}s: {kernel.metadata.kernel_path}",

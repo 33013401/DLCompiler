@@ -31,7 +31,7 @@ set(CMAKE_C_COMPILER ${LLVM_SYSPATH}/bin/clang)
 set(CMAKE_CXX_COMPILER ${LLVM_SYSPATH}/bin/clang++)
 
 # Add the library target
-set(BIN_NAME tx-profiler)
+set(BIN_NAME wafer-profiler)
 add_executable(${BIN_NAME} ${SOURCES})
 
 # Apply RISC-V specific settings to our target
