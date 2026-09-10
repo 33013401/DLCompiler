@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -11,6 +12,8 @@ from typing import Any, Dict, Tuple
 
 from triton._C.libtriton import ir, passes
 from triton.backends.compiler import BaseBackend, GPUTarget
+
+from .wafer_cache import cache_digest, file_fingerprint
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,7 @@ class TXDAOptions:
     cluster_dims: tuple = (1, 1, 1)
     shared: bool = False
     allow_fp8e4nv: bool = False
-    allowed_dot_input_precisions: Tuple[str, ...] = ("ieee", )
+    allowed_dot_input_precisions: Tuple[str, ...] = ("ieee",)
     sanitize_overflow: bool = True
     max_num_imprecise_acc_default: int = 0
     supported_fp8_dtypes: Tuple[str, ...] = ("fp8e5", "fp8e4b15", "fp8e4nv")
@@ -42,7 +45,10 @@ class TXDAOptions:
 
 
 def _run_tool(arguments):
-    subprocess.check_call(arguments, stdout=None if os.getenv("MLIR_ENABLE_DUMP") == "1" else subprocess.DEVNULL)
+    subprocess.check_call(
+        arguments,
+        stdout=None if os.getenv("MLIR_ENABLE_DUMP") == "1" else subprocess.DEVNULL,
+    )
 
 
 def _dump_file(path):
@@ -63,7 +69,14 @@ def _find_wafer_opt():
     backend_dir = Path(__file__).resolve().parent
     candidates = (
         backend_dir / "bin" / "wafer-opt",
-        backend_dir.parent / "third_party" / "wafer" / "build_manual" / "third_party" / "wafer" / "bin" / "wafer-opt",
+        backend_dir.parent
+        / "third_party"
+        / "wafer"
+        / "build_manual"
+        / "third_party"
+        / "wafer"
+        / "bin"
+        / "wafer-opt",
         backend_dir.parent
         / "third_party"
         / "wafer"
@@ -81,7 +94,9 @@ def _find_wafer_opt():
     path = shutil.which("wafer-opt")
     if path:
         return path
-    raise RuntimeError("wafer-opt not found; run compile_wafer.sh or set WAFER_OPT_PATH")
+    raise RuntimeError(
+        "wafer-opt not found; run compile_wafer.sh or set WAFER_OPT_PATH"
+    )
 
 
 def _find_llvm_tool(name):
@@ -101,7 +116,13 @@ def _run_wafer_stage(source, arguments, source_name, output_name):
         source_path = Path(tmpdir) / source_name
         output_path = Path(tmpdir) / output_name
         source_path.write_text(str(source), encoding="utf-8")
-        command = [_find_wafer_opt(), str(source_path), *arguments, "-o", str(output_path)]
+        command = [
+            _find_wafer_opt(),
+            str(source_path),
+            *arguments,
+            "-o",
+            str(output_path),
+        ]
         _run_tool(command)
         _dump_file(source_path)
         _dump_file(output_path)
@@ -175,13 +196,15 @@ def txir_to_llir(module, metadata):
             str(llvm_mlir_path),
         ]
         _run_tool(wafer_arguments)
-        _run_tool([
-            _find_llvm_tool("mlir-translate"),
-            str(llvm_mlir_path),
-            "--mlir-to-llvmir",
-            "-o",
-            str(llvm_ir_path),
-        ])
+        _run_tool(
+            [
+                _find_llvm_tool("mlir-translate"),
+                str(llvm_mlir_path),
+                "--mlir-to-llvmir",
+                "-o",
+                str(llvm_ir_path),
+            ]
+        )
         llvm_ir = llvm_ir_path.read_text(encoding="utf-8")
         names = re.findall(r"define\s+(?:\w+\s+)*@([\w.$]+)\(", llvm_ir)
         if names:
@@ -192,15 +215,27 @@ def txir_to_llir(module, metadata):
         return llvm_ir
 
 
-def llir_to_object(llvm_ir, metadata):
+def llir_to_object(llvm_ir, metadata, simulator=None):
+    if simulator is None:
+        simulator = simulator_enabled()
     with tempfile.TemporaryDirectory() as tmpdir:
         source_path = Path(tmpdir) / "kernel.ll"
         object_path = Path(tmpdir) / "kernel.o"
         source_path.write_text(llvm_ir, encoding="utf-8")
         compiler = _find_llvm_tool("clang++")
-        arguments = [compiler, str(source_path), "-O2", "-c", "-fPIC", "-o", str(object_path)]
-        if os.getenv("USE_SIM_MODE", "0").lower() not in ("1", "true", "yes"):
-            arguments.extend(["--target=riscv64-unknown-elf", "-march=rv64imfdc"])
+        arguments = [
+            compiler,
+            str(source_path),
+            "-O2",
+            "-c",
+            "-fPIC",
+            "-o",
+            str(object_path),
+        ]
+        if not simulator:
+            arguments.extend(
+                ["--target=riscv64-unknown-elf", "-march=rv64imfdc", "-mabi=lp64d"]
+            )
         _run_tool(arguments)
         _dump_file(object_path)
         return object_path.read_bytes()
@@ -217,27 +252,134 @@ def _find_linker_library(linker, name):
     return path
 
 
-def object_to_binary(obj, metadata):
-    if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
-        raise RuntimeError(
-            "Wafer simulator linking requires libvr, libtriton_cmodel, "
-            "libtx8be_op_cmodel, and libneuralcore_qemu; they are not part of the current SDK."
+LINK_FLAGS = (
+    "-shared",
+    "-march=rv64imfdc",
+    "-mabi=lp64d",
+    "-O2",
+    "-nostartfiles",
+    "-Wl,--allow-shlib-undefined",
+    "-Wl,--no-dynamic-linker",
+    "-Wl,--gc-sections",
+    "-Wl,--unique=.rodata.name",
+)
+
+# Kuiper 1.4 firmware renamed the device logging API. Rename references in
+# private archive/object copies; preserve the vendor implementation and varargs
+# ABI instead of supplying empty logging stubs or modifying the installed SDK.
+RCS_LOG_SYMBOLS = {
+    "tx8_kernel_printf": "rcs_kernel_printf",
+    "tx8_kernel_vprintf": "rcs_kernel_vprintf",
+    "tx8_kernel_vsnprintf": "rcs_kernel_vsnprintf",
+    "tsm_ep_log": "rcs_ep_log",
+    "_tsm_ep_log": "_rcs_ep_log",
+}
+
+
+def device_log_abi():
+    abi = os.getenv("WAFER_DEVICE_LOG_ABI", "tx8")
+    if abi not in ("tx8", "rcs"):
+        raise ValueError(
+            f"Unsupported WAFER_DEVICE_LOG_ABI={abi!r}; expected tx8 or rcs"
         )
+    return abi
+
+
+def _runtime_link_inputs():
     tx8_root = Path(os.environ["TX8_DEPS_ROOT"])
-    toolchain_root = Path(os.getenv("XUANTIE_NAME", tx8_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"))
+    toolchain_root = Path(
+        os.getenv(
+            "XUANTIE_NAME", tx8_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"
+        )
+    )
     linker = toolchain_root / "bin" / "riscv64-unknown-elf-gcc"
-    wafer_lib_dir = Path(os.getenv("WAFER_RUNTIME_LIB_DIR", Path(__file__).resolve().parent / "lib"))
+    wafer_lib_dir = Path(
+        os.getenv("WAFER_RUNTIME_LIB_DIR", Path(__file__).resolve().parent / "lib")
+    )
     if not wafer_lib_dir.is_dir():
-        wafer_lib_dir = Path(__file__).resolve().parent.parent / "third_party" / "wafer" / "lib"
+        wafer_lib_dir = (
+            Path(__file__).resolve().parent.parent / "third_party" / "wafer" / "lib"
+        )
 
     required = [linker, wafer_lib_dir, tx8_root / "lib"]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
-        raise RuntimeError("Wafer runtime link dependencies are missing: " + ", ".join(missing))
-    libc_dir = _find_linker_library(linker, "libc.a").parent
-    libgcc_dir = _find_linker_library(linker, "libgcc.a").parent
+        raise RuntimeError(
+            "Wafer runtime link dependencies are missing: " + ", ".join(missing)
+        )
+    libraries = [
+        tx8_root / "lib" / name
+        for name in ("libcommon_util.a", "libinstr_tx81.a", "liblibc_stub.a")
+    ]
+    libraries.append(wafer_lib_dir / "libvr.a")
+    libraries.extend(
+        _find_linker_library(linker, name) for name in ("libm.a", "libc.a", "libgcc.a")
+    )
+    for library in libraries:
+        if not library.is_file():
+            raise RuntimeError(f"Wafer runtime link library is missing: {library}")
+    return linker, libraries
 
-    key = hashlib.sha256(obj).hexdigest()
+
+def _link_fingerprint(linker, libraries, log_abi=None):
+    log_abi = device_log_abi() if log_abi is None else log_abi
+    result = {
+        "linker": file_fingerprint(linker),
+        "ld": file_fingerprint(linker.parent / "riscv64-unknown-elf-ld"),
+        "flags": LINK_FLAGS,
+        "libraries": [file_fingerprint(path) for path in libraries],
+        "device_log_abi": log_abi,
+    }
+    if log_abi == "rcs":
+        result["log_symbols"] = RCS_LOG_SYMBOLS
+        result["objcopy"] = file_fingerprint(_find_llvm_tool("llvm-objcopy"))
+    return result
+
+
+def _adapt_logging_file(source, destination):
+    _run_tool(
+        [
+            _find_llvm_tool("llvm-objcopy"),
+            *(f"--redefine-sym={old}={new}" for old, new in RCS_LOG_SYMBOLS.items()),
+            str(source),
+            str(destination),
+        ]
+    )
+
+
+def _adapt_logging_libraries(libraries, link_fingerprint):
+    from triton.runtime.cache import get_cache_manager
+
+    cache = get_cache_manager(cache_digest({"logging_archives": link_fingerprint}))
+    adapted = []
+    # Only TX8 and Wafer archives contain the renamed device APIs.
+    for index, library in enumerate(libraries[:4]):
+        name = f"{index}-{library.name}"
+        path = cache.get_file(name)
+        if path is None:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output = Path(tmpdir) / name
+                _adapt_logging_file(library, output)
+                path = cache.put(output.read_bytes(), name, binary=True)
+        adapted.append(Path(path))
+    return adapted + libraries[4:]
+
+
+def object_to_binary(obj, metadata, simulator=None, log_abi=None):
+    if simulator is None:
+        simulator = simulator_enabled()
+    if simulator:
+        raise RuntimeError(
+            "Wafer simulator linking requires libvr, libtriton_cmodel, "
+            "libtx8be_op_cmodel, and libneuralcore_qemu; they are not part of the current SDK."
+        )
+    linker, libraries = _runtime_link_inputs()
+    log_abi = device_log_abi() if log_abi is None else log_abi
+    link_fingerprint = _link_fingerprint(linker, libraries, log_abi)
+
+    key = cache_digest(
+        {"object": hashlib.sha256(obj).hexdigest(), "link": link_fingerprint}
+    )
     from triton.runtime.cache import get_cache_manager
 
     cache = get_cache_manager(key)
@@ -247,20 +389,35 @@ def object_to_binary(obj, metadata):
             object_path = Path(tmpdir) / "kernel.o"
             binary_path = Path(tmpdir) / "kernel.so"
             object_path.write_bytes(obj)
+            if log_abi == "rcs":
+                libraries = _adapt_logging_libraries(libraries, link_fingerprint)
+                adapted_object = Path(tmpdir) / "kernel-rcs.o"
+                _adapt_logging_file(object_path, adapted_object)
+                object_path = adapted_object
             command = [
-                str(linker), "-shared", "-march=rv64imfdc", "-mabi=lp64d", "-O2", "-nostartfiles",
-                "-Wl,--allow-shlib-undefined", "-Wl,--no-dynamic-linker", str(object_path),
-                f"-L{wafer_lib_dir}", f"-L{libc_dir}", f"-L{libgcc_dir}", f"-L{tx8_root / 'lib'}",
-                "-Wl,--start-group", "-lcommon_util", "-linstr_tx81", "-llibc_stub", "-lvr",
-                "-Wl,--end-group", "-lm", "-Wl,--gc-sections", "-Wl,--unique=.rodata.name", "-lc", "-lgcc",
-                "-o", str(binary_path),
+                str(linker),
+                *LINK_FLAGS,
+                str(object_path),
+                "-Wl,--start-group",
+                *(str(path) for path in libraries[:4]),
+                "-Wl,--end-group",
+                *(str(path) for path in libraries[4:]),
+                "-o",
+                str(binary_path),
             ]
+            cache.put(obj, "kernel.o", binary=True)
+            cache.put(
+                json.dumps({"command": command, "inputs": link_fingerprint}, indent=2),
+                "link.json",
+                binary=False,
+            )
             _run_tool(command)
             _dump_file(binary_path)
             cache_path = cache.put(binary_path.read_bytes(), "kernel.so", binary=True)
 
     metadata["kernel_path"] = cache_path
     metadata["so_key"] = Path(cache_path).parent.name
+    metadata["device_log_abi"] = log_abi
     return Path(cache_path).read_bytes()
 
 
@@ -268,8 +425,17 @@ def runtime_binary_enabled():
     return os.getenv("WAFER_ENABLE_RUNTIME", "0").lower() in ("1", "true", "yes")
 
 
+def simulator_enabled():
+    return os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes")
+
+
 class TXDABackend(BaseBackend):
-    binary_ext = "so" if runtime_binary_enabled() else "o"
+    def __init__(self, target):
+        super().__init__(target)
+        self.simulator = simulator_enabled()
+        self.runtime = runtime_binary_enabled()
+        self.device_log_abi = device_log_abi()
+        self.binary_ext = "so" if self.runtime else "o"
 
     @staticmethod
     def supports_target(target: GPUTarget):
@@ -285,7 +451,23 @@ class TXDABackend(BaseBackend):
         return TXDAOptions(**arguments)
 
     def hash(self):
-        return f"{self.target.backend}-{self.target.arch}-{self.target.warp_size}"
+        inputs = {
+            "target": [self.target.backend, self.target.arch, self.target.warp_size],
+            "simulator": self.simulator,
+            "runtime": self.runtime,
+            "precision_priority": os.getenv("PRECISION_PRIORITY", "0"),
+            "tools": [
+                file_fingerprint(_find_wafer_opt()),
+                file_fingerprint(_find_llvm_tool("mlir-translate")),
+                file_fingerprint(_find_llvm_tool("clang++")),
+            ],
+            "source": file_fingerprint(__file__),
+        }
+        if self.runtime and not self.simulator:
+            inputs["link"] = _link_fingerprint(
+                *_runtime_link_inputs(), self.device_log_abi
+            )
+        return cache_digest(inputs)
 
     def get_codegen_implementation(self, options):
         return {"min_dot_size": lambda lhs_type, rhs_type: (1, 1, 1)}
@@ -322,14 +504,23 @@ class TXDABackend(BaseBackend):
         return module
 
     def add_stages(self, stages, options, language=None):
-        stages["ttir"] = lambda source, metadata: self.make_ttir(source, metadata, options)
+        stages["ttir"] = lambda source, metadata: self.make_ttir(
+            source, metadata, options
+        )
         stages["coreir"] = lambda source, metadata: ttir_to_coreir(source)
         stages["txir"] = lambda source, metadata: coreir_to_txir(source)
         stages["llir"] = lambda source, metadata: txir_to_llir(source, metadata)
-        if runtime_binary_enabled():
-            stages["so"] = lambda source, metadata: object_to_binary(llir_to_object(source, metadata), metadata)
+        if self.runtime:
+            stages["so"] = lambda source, metadata: object_to_binary(
+                llir_to_object(source, metadata, self.simulator),
+                metadata,
+                self.simulator,
+                self.device_log_abi,
+            )
         else:
-            stages["o"] = lambda source, metadata: llir_to_object(source, metadata)
+            stages["o"] = lambda source, metadata: llir_to_object(
+                source, metadata, self.simulator
+            )
 
     def get_module_map(self) -> Dict[str, ModuleType]:
         try:

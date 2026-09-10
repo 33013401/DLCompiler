@@ -171,7 +171,12 @@ class DICPDriver(DriverBase):
 
             hook_autotune_for_ascend()
         elif backend == "wafer":
-            from .wafer_runtime import SimulatorUtils, TXDALauncher, TXDAUtils, get_runtime
+            from .wafer_runtime import (
+                SimulatorUtils,
+                TXDALauncher,
+                TXDAUtils,
+                get_runtime,
+            )
 
             self.target = "wafer"
             if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
@@ -181,7 +186,9 @@ class DICPDriver(DriverBase):
             else:
                 self.utils = TXDAUtils()
                 self.get_current_device = lambda: get_runtime().current_device()
-                self.set_current_device = lambda device: get_runtime().set_device(device)
+                self.set_current_device = lambda device: get_runtime().set_device(
+                    device
+                )
             self.launcher_cls = TXDALauncher
         elif backend == "nvidia":
             from triton.backends.nvidia.driver import CudaLauncher, CudaUtils
@@ -282,7 +289,12 @@ class DICPDriver(DriverBase):
 
     def get_current_stream(self, device):
         if self.target == "wafer":
-            return None
+            if os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes"):
+                return None
+            from .wafer_runtime import get_runtime
+
+            stream = get_runtime().current_stream(device)
+            return None if stream is None else stream.txda_stream
         import torch
 
         if self.target == "mlu":
@@ -407,6 +419,12 @@ class DICPDriver(DriverBase):
 
         if self.is_cpu_verify:
             return self._cpu_driver.get_active_torch_device()
+        if self.target == "wafer" and os.getenv("USE_SIM_MODE", "0").lower() not in (
+            "1",
+            "true",
+            "yes",
+        ):
+            return torch.device("txda", self.get_current_device())
         return torch.device("cpu")
 
     def map_python_to_cpp_type(self, ty: str) -> str:

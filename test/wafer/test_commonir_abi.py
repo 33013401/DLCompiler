@@ -9,7 +9,9 @@ from unittest.mock import Mock
 import pytest
 
 
-@pytest.mark.parametrize("target,mix_mode", [("mlu", False), ("maca", False), ("ascend", True)])
+@pytest.mark.parametrize(
+    "target,mix_mode", [("mlu", False), ("maca", False), ("ascend", True)]
+)
 def test_commonir_legacy_loader_contract(monkeypatch, target, mix_mode):
     calls = []
     handle = object()

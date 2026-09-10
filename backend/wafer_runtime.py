@@ -1,5 +1,4 @@
 import ctypes
-import hashlib
 import importlib.util
 import os
 import shutil
@@ -9,6 +8,8 @@ import tempfile
 from pathlib import Path
 
 from triton.runtime.cache import get_cache_manager
+
+from .wafer_cache import cache_digest, file_fingerprint
 
 
 def _sdk_path(name):
@@ -38,11 +39,16 @@ class _KuiperRuntime:
         if status != 0:
             raise RuntimeError(f"txSetDevice failed with status 0x{status:x}")
 
+    def current_stream(self, device=None):
+        # Without torch_txda there is no framework stream context.
+        return None
+
 
 def get_runtime():
     try:
         import torch
         import torch_txda  # noqa: F401
+
         if hasattr(torch, "txda"):
             return torch.txda
     except (ImportError, AttributeError):
@@ -50,16 +56,31 @@ def get_runtime():
     return _KuiperRuntime()
 
 
-def _build_launcher(name, source, directory):
-    suffix = sysconfig.get_config_var("EXT_SUFFIX")
-    output = os.path.join(directory, f"{name}{suffix}")
+def _launcher_compiler():
     compiler = os.getenv("CXX") or shutil.which("clang++") or shutil.which("g++")
     if compiler is None:
         raise RuntimeError("Failed to find a C++ compiler; set CXX.")
+    return shutil.which(compiler) or compiler
+
+
+def _build_launcher(name, source, directory):
+    suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    output = os.path.join(directory, f"{name}{suffix}")
+    compiler = _launcher_compiler()
     include_dirs = [_sdk_path("include"), sysconfig.get_path("include")]
     library_dirs = [_sdk_path("lib")]
     libraries = ["hpgr"]
-    command = [compiler, source, "-O3", "-shared", "-fPIC", "-std=c++17", "-Wno-psabi", "-o", output]
+    command = [
+        compiler,
+        source,
+        "-O3",
+        "-shared",
+        "-fPIC",
+        "-std=c++17",
+        "-Wno-psabi",
+        "-o",
+        output,
+    ]
     command += [f"-I{path}" for path in include_dirs]
     command += [f"-L{path}" for path in library_dirs]
     command += [f"-l{library}" for library in libraries]
@@ -67,16 +88,36 @@ def _build_launcher(name, source, directory):
     return output
 
 
+def _launcher_cache_key(source):
+    headers = sorted(Path(_sdk_path("include")).rglob("*.h"))
+    return cache_digest(
+        {
+            "source": source,
+            "compiler": file_fingerprint(_launcher_compiler()),
+            "python": [
+                sysconfig.get_config_var("SOABI"),
+                sysconfig.get_config_var("EXT_SUFFIX"),
+                file_fingerprint(Path(sysconfig.get_path("include")) / "Python.h"),
+                file_fingerprint(sysconfig.get_config_h_filename()),
+            ],
+            "sdk_headers": [file_fingerprint(path) for path in headers],
+            "runtime": file_fingerprint(_sdk_path("lib/libhpgr.so")),
+        }
+    )
+
+
 def compile_launcher(source):
     name = "__triton_launcher"
-    cache = get_cache_manager(hashlib.sha256(source.encode("utf-8")).hexdigest())
+    cache = get_cache_manager(_launcher_cache_key(source))
     cache_path = cache.get_file(f"{name}.so")
     if cache_path is None:
         with tempfile.TemporaryDirectory() as directory:
             source_path = os.path.join(directory, f"{name}.cpp")
             Path(source_path).write_text(source, encoding="utf-8")
             shared_object = _build_launcher(name, source_path, directory)
-            cache_path = cache.put(Path(shared_object).read_bytes(), f"{name}.so", binary=True)
+            cache_path = cache.put(
+                Path(shared_object).read_bytes(), f"{name}.so", binary=True
+            )
     spec = importlib.util.spec_from_file_location(name, cache_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -86,10 +127,27 @@ def compile_launcher(source):
 def _cpp_type(type_name):
     if type_name.startswith("*"):
         return "PyObject*"
+    if type_name in ("fp16", "bf16"):
+        raise NotImplementedError(
+            "Wafer fp16/bf16 scalar packing is not implemented; pass an fp32 scalar "
+            "and cast inside the kernel. fp16/bf16 tensor pointers are supported."
+        )
     return {
-        "i1": "int32_t", "i8": "int8_t", "i16": "int16_t", "i32": "int32_t", "i64": "int64_t",
-        "u1": "uint32_t", "u8": "uint8_t", "u16": "uint16_t", "u32": "uint32_t", "u64": "uint64_t",
-        "fp16": "float", "bf16": "float", "fp32": "float", "f32": "float", "fp64": "double",
+        "i1": "int32_t",
+        # Parse signed narrow values as C int, then copy their low bytes into
+        # the 64-bit slot. KernelArgBufferPass loads the declared scalar width.
+        "i8": "int32_t",
+        "i16": "int32_t",
+        "i32": "int32_t",
+        "i64": "int64_t",
+        "u1": "uint32_t",
+        "u8": "uint8_t",
+        "u16": "uint16_t",
+        "u32": "uint32_t",
+        "u64": "uint64_t",
+        "fp32": "float",
+        "f32": "float",
+        "fp64": "double",
     }[type_name]
 
 
@@ -97,27 +155,41 @@ def _parse_format(type_name):
     if type_name.startswith("*"):
         return "O"
     return {
-        "int8_t": "b", "int16_t": "h", "int32_t": "i", "int64_t": "L",
-        "uint8_t": "B", "uint16_t": "H", "uint32_t": "I", "uint64_t": "K",
-        "float": "f", "double": "d",
+        "int8_t": "b",
+        "int16_t": "h",
+        "int32_t": "i",
+        "int64_t": "L",
+        "uint8_t": "B",
+        "uint16_t": "H",
+        "uint32_t": "I",
+        "uint64_t": "K",
+        "float": "f",
+        "double": "d",
     }[_cpp_type(type_name)]
 
 
 def make_launcher(signature):
-    declarations = " ".join(f"{_cpp_type(type_name)} arg{index};" for index, type_name in signature.items())
-    parse_format = "iiiOKOOOO" + "".join(_parse_format(type_name) for type_name in signature.values())
+    declarations = " ".join(
+        f"{_cpp_type(type_name)} arg{index};" for index, type_name in signature.items()
+    )
+    parse_format = "iiiOKOOOO" + "".join(
+        _parse_format(type_name) for type_name in signature.values()
+    )
     parse_args = "".join(f", &arg{index}" for index in signature)
     pointer_setup = "\n".join(
         f"void *ptr{index} = get_pointer(arg{index}); if (PyErr_Occurred()) return NULL;"
-        for index, type_name in signature.items() if type_name.startswith("*")
+        for index, type_name in signature.items()
+        if type_name.startswith("*")
     )
     kernel_args = "\n".join(
-        f"runtime_args.push_back(1); runtime_args.push_back((uint64_t)ptr{index});"
-        if type_name.startswith("*") else
-        f"uint64_t scalar{index} = 0; memcpy(&scalar{index}, &arg{index}, sizeof(arg{index})); runtime_args.push_back(scalar{index});"
+        (
+            f"runtime_args.push_back(1); runtime_args.push_back((uint64_t)ptr{index});"
+            if type_name.startswith("*")
+            else f"uint64_t scalar{index} = 0; memcpy(&scalar{index}, &arg{index}, sizeof(arg{index})); runtime_args.push_back(scalar{index});"
+        )
         for index, type_name in signature.items()
     )
-    return f'''
+    return f"""
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdint.h>
@@ -144,6 +216,12 @@ static PyObject *launch(PyObject *, PyObject *args) {{
     {declarations}
     if (!PyArg_ParseTuple(args, "{parse_format}", &grid_x, &grid_y, &grid_z, &stream_object, &function,
             &kernel_metadata, &launch_metadata, &enter_hook, &exit_hook{parse_args})) return NULL;
+    if (grid_x < 0 || grid_y < 0 || grid_z < 0) {{
+        PyErr_SetString(PyExc_ValueError, "Wafer grid dimensions must be nonnegative"); return NULL;
+    }}
+    if (grid_x == 0 || grid_y == 0 || grid_z == 0) Py_RETURN_NONE;
+    txStream_t stream = stream_object == Py_None ? nullptr : (txStream_t)PyLong_AsVoidPtr(stream_object);
+    if (PyErr_Occurred()) return NULL;
     if (enter_hook != Py_None) {{
         PyObject *result = PyObject_CallFunctionObjArgs(enter_hook, launch_metadata, NULL);
         if (!result) return NULL;
@@ -154,24 +232,37 @@ static PyObject *launch(PyObject *, PyObject *args) {{
     {kernel_args}
     runtime_args.insert(runtime_args.end(), {{(uint64_t)grid_x, (uint64_t)grid_y, (uint64_t)grid_z, 0, 0, 0}});
     PyObject *path_object = PyObject_GetAttrString(kernel_metadata, "kernel_path");
+    if (!path_object) return NULL;
     PyObject *name_object = PyObject_GetAttrString(kernel_metadata, "name");
+    if (!name_object) {{ Py_DECREF(path_object); return NULL; }}
     const char *kernel_path = PyUnicode_AsUTF8(path_object);
+    if (!kernel_path) {{ Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
     const char *kernel_name = PyUnicode_AsUTF8(name_object);
+    if (!kernel_name) {{ Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
     FILE *file = fopen(kernel_path, "rb");
-    if (!file) {{ Py_DECREF(path_object); Py_DECREF(name_object); PyErr_SetFromErrnoWithFilename(PyExc_OSError, kernel_path); return NULL; }}
-    fseek(file, 0, SEEK_END); size_t size = ftell(file); rewind(file);
+    if (!file) {{ PyErr_SetFromErrnoWithFilename(PyExc_OSError, kernel_path); Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
+    long length = -1;
+    if (fseek(file, 0, SEEK_END) == 0) length = ftell(file);
+    if (length <= 0 || fseek(file, 0, SEEK_SET) != 0) {{
+        PyErr_Format(PyExc_OSError, "Invalid or empty Wafer kernel: %s", kernel_path);
+        fclose(file); Py_DECREF(path_object); Py_DECREF(name_object); return NULL;
+    }}
+    size_t size = (size_t)length;
     void *binary = malloc(size);
     if (!binary || fread(binary, 1, size, file) != size) {{ fclose(file); free(binary); Py_DECREF(path_object); Py_DECREF(name_object); PyErr_SetString(PyExc_RuntimeError, "Failed to read Wafer kernel"); return NULL; }}
     fclose(file);
-    txStream_t stream = stream_object == Py_None ? nullptr : (txStream_t)PyLong_AsVoidPtr(stream_object);
     txError_t status = txLaunchKernelGGL(kernel_name, (uint64_t)binary, size,
         dim3({{(uint32_t)grid_x, (uint32_t)grid_y, (uint32_t)grid_z}}), dim3({{1, 1, 1}}),
         runtime_args.data(), runtime_args.size() * sizeof(uint64_t), 0, stream);
     if (status == TX_SUCCESS) status = txStreamSynchronize(stream);
     free(binary);
+    if (status != TX_SUCCESS) {{
+        PyErr_Format(PyExc_RuntimeError, "Wafer kernel %s (%s) failed with Kuiper status 0x%x, stream=%p",
+                     kernel_name, kernel_path, (unsigned int)status, (void*)stream);
+    }}
     Py_DECREF(path_object);
     Py_DECREF(name_object);
-    if (status != TX_SUCCESS) {{ PyErr_SetString(PyExc_RuntimeError, "Wafer kernel launch failed"); return NULL; }}
+    if (status != TX_SUCCESS) return NULL;
     if (exit_hook != Py_None) {{
         PyObject *result = PyObject_CallFunctionObjArgs(exit_hook, launch_metadata, NULL);
         if (!result) return NULL;
@@ -182,12 +273,14 @@ static PyObject *launch(PyObject *, PyObject *args) {{
 static PyMethodDef methods[] = {{{{"launch", launch, METH_VARARGS, "Launch a Wafer kernel"}}, {{NULL, NULL, 0, NULL}}}};
 static struct PyModuleDef module = {{PyModuleDef_HEAD_INIT, "__triton_launcher", NULL, -1, methods}};
 PyMODINIT_FUNC PyInit___triton_launcher(void) {{ return PyModule_Create(&module); }}
-'''
+"""
 
 
 class TXDAUtils:
     def load_binary(self, name, kernel, shared_mem, device):
-        return None, 0, 0, 0, 1024
+        # Kuiper loads the ELF during launch. Retain the binary as an opaque,
+        # non-null lifetime token so CompiledKernel initializes only once.
+        return kernel, 0, 0, 0, 1024
 
     def get_device_properties(self, device=None):
         return {"max_shared_mem": 3 * 1024 * 1024 - 2 * 0x10000}
@@ -217,13 +310,38 @@ class TXDALauncher:
             key = key[0] if isinstance(key, tuple) else key
             return argument_names.index(key) if isinstance(key, str) else int(key)
 
-        signature = {argument_index(index): type_name for index, type_name in src.signature.items()}
+        signature = dict(
+            sorted(
+                (argument_index(index), type_name)
+                for index, type_name in src.signature.items()
+            )
+        )
         constants = {argument_index(index) for index in getattr(src, "constants", {})}
-        signature = {index: type_name for index, type_name in signature.items() if index not in constants}
+        self.source_argument_count = len(argument_names) or (
+            max(signature, default=-1) + 1
+        )
+        signature = {
+            index: type_name
+            for index, type_name in signature.items()
+            if index not in constants
+        }
+        self.runtime_argument_indices = tuple(signature)
         self.metadata = metadata
         self.launch = compile_launcher(make_launcher(signature)).launch
 
     def __call__(self, *args, **kwargs):
         arguments = list(args)
+        count = len(arguments) - 9
+        if count == self.source_argument_count:
+            # JITFunction passes all bound arguments, including constexpr and
+            # specialized values. CompiledKernel also accepts runtime-only args.
+            arguments = arguments[:9] + [
+                arguments[9 + index] for index in self.runtime_argument_indices
+            ]
+        elif count != len(self.runtime_argument_indices):
+            raise TypeError(
+                f"Wafer launcher expected {len(self.runtime_argument_indices)} runtime arguments "
+                f"or {self.source_argument_count} source arguments, got {count}"
+            )
         arguments[5] = self.metadata
         return self.launch(*arguments, **kwargs)
