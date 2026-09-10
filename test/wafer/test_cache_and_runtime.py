@@ -18,11 +18,11 @@ def test_modes_are_snapshotted_and_separate_cache_keys(
     _, compiler, _ = wafer_modules
     monkeypatch.setenv("USE_SIM_MODE", "0")
     monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "0")
-    offline = compiler.TXDABackend(TARGET)
+    offline = compiler.WaferBackend(TARGET)
     monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "1")
-    hardware = compiler.TXDABackend(TARGET)
+    hardware = compiler.WaferBackend(TARGET)
     monkeypatch.setenv("USE_SIM_MODE", "1")
-    simulator = compiler.TXDABackend(TARGET)
+    simulator = compiler.WaferBackend(TARGET)
     monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "0")
     for backend, final in ((offline, "o"), (hardware, "so"), (simulator, "so")):
         stages = {}
@@ -50,7 +50,7 @@ def test_archive_update_invalidates_both_compiler_and_link_cache(
         Path(command[-1]).write_bytes(b"linked " + libraries[3].read_bytes())
 
     monkeypatch.setattr(compiler, "_run_tool", link)
-    before = compiler.TXDABackend(TARGET).hash()
+    before = compiler.WaferBackend(TARGET).hash()
     metadata = {}
     first = compiler.object_to_binary(b"same object", metadata)
     path_before = metadata["kernel_path"]
@@ -61,7 +61,7 @@ def test_archive_update_invalidates_both_compiler_and_link_cache(
     libraries[3].write_bytes(b"X" * old_stat.st_size)
     os.utime(libraries[3], ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
     second = compiler.object_to_binary(b"same object", metadata)
-    assert compiler.TXDABackend(TARGET).hash() != before
+    assert compiler.WaferBackend(TARGET).hash() != before
     assert second != first and metadata["kernel_path"] != path_before
     assert len(commands) == 2
 
@@ -87,9 +87,9 @@ def test_device_log_abi_invalidates_cache(monkeypatch, wafer_modules, fake_toolc
     monkeypatch.setenv("USE_SIM_MODE", "0")
     monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "1")
     monkeypatch.setenv("WAFER_DEVICE_LOG_ABI", "tx8")
-    before = compiler.TXDABackend(TARGET).hash()
+    before = compiler.WaferBackend(TARGET).hash()
     monkeypatch.setenv("WAFER_DEVICE_LOG_ABI", "rcs")
-    assert compiler.TXDABackend(TARGET).hash() != before
+    assert compiler.WaferBackend(TARGET).hash() != before
 
 
 def test_repeated_compiled_kernel_launch_initializes_once(monkeypatch, wafer_modules):
@@ -99,7 +99,7 @@ def test_repeated_compiled_kernel_launch_initializes_once(monkeypatch, wafer_mod
     launch = Mock()
     launcher_cls = Mock(return_value=launch)
     driver = SimpleNamespace(
-        utils=runtime.TXDAUtils(),
+        utils=runtime.WaferUtils(),
         launcher_cls=launcher_cls,
         get_current_device=lambda: 0,
         get_current_stream=lambda device: None,
@@ -134,7 +134,7 @@ def test_jit_and_compiled_kernel_argument_contracts(monkeypatch, wafer_modules):
         constants={(2,): 256},
     )
     metadata = object()
-    launcher = runtime.TXDALauncher(src, metadata)
+    launcher = runtime.WaferLauncher(src, metadata)
     prefix = (1, 1, 1, None, 0, (), None, None, None)
     launcher(*prefix, 123, 1.25, 256)
     launcher(*prefix, 123, 1.25)
@@ -173,12 +173,12 @@ def test_runtime_selection_does_not_hide_native_abi_errors(monkeypatch, wafer_mo
     import builtins
 
     _, _, runtime = wafer_modules
-    txda = object()
+    mock_wafer_runtime = object()
     fallback = object()
-    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(txda=txda))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(txda=mock_wafer_runtime))
     monkeypatch.setitem(sys.modules, "torch_txda", SimpleNamespace())
     monkeypatch.setattr(runtime, "_KuiperRuntime", lambda: fallback)
-    assert runtime.get_runtime() is txda
+    assert runtime.get_runtime() is mock_wafer_runtime
     monkeypatch.setitem(sys.modules, "torch_txda", None)
     assert runtime.get_runtime() is fallback
     original_import = builtins.__import__

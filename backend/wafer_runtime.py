@@ -276,7 +276,14 @@ PyMODINIT_FUNC PyInit___triton_launcher(void) {{ return PyModule_Create(&module)
 """
 
 
-class TXDAUtils:
+def __getattr__(name):
+    aliases = {"TXDAUtils": WaferUtils, "TXDALauncher": WaferLauncher}
+    if name in aliases:
+        return aliases[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+class WaferUtils:
     def load_binary(self, name, kernel, shared_mem, device):
         # Kuiper loads the ELF during launch. Retain the binary as an opaque,
         # non-null lifetime token so CompiledKernel initializes only once.
@@ -302,7 +309,7 @@ class SimulatorUtils:
         return {"max_shared_mem": 3 * 1024 * 1024 - 2 * 0x10000}
 
 
-class TXDALauncher:
+class WaferLauncher:
     def __init__(self, src, metadata):
         argument_names = getattr(getattr(src, "fn", None), "arg_names", ())
 

@@ -36,7 +36,7 @@ def run_stage(wafer_opt, source, output, arguments):
 
 def lower_case(wafer_opt, ttir_path, output_dir):
     coreir_path = output_dir / "coreir.mlir"
-    txir_path = output_dir / "txir.mlir"
+    wafer_ir_path = output_dir / "txir.mlir"
     llvm_path = output_dir / "llvm.mlir"
     run_stage(
         wafer_opt,
@@ -59,12 +59,12 @@ def lower_case(wafer_opt, ttir_path, output_dir):
     run_stage(
         wafer_opt,
         coreir_path,
-        txir_path,
+        wafer_ir_path,
         ["--spmd-allocate-shared-memory", "--expand-strided-metadata", "--lower-affine", "--mk-to-tx81", "--cse"],
     )
     run_stage(
         wafer_opt,
-        txir_path,
+        wafer_ir_path,
         llvm_path,
         [
             "--tx81-memref-to-llvm",

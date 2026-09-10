@@ -152,7 +152,7 @@ def get_tsm_opt_path() -> str:
     )
 
 
-def get_tx8_deps_path(sub_name: str) -> str:
+def get_wafer_deps_path(sub_name: str) -> str:
     path = os.getenv("TX8_DEPS_ROOT", "")
     if path == "":
         raise Exception("TX8_DEPS_ROOT is not set.")
@@ -165,7 +165,7 @@ def get_kuiper_path(sub_name: str) -> str:
     return os.path.join(kuiper_path, sub_name)
 
 
-def get_tx8_profiler_path() -> str:
+def get_wafer_profiler_path() -> str:
     path = os.path.join(os.path.dirname(get_tsm_opt_path()), "tx-profiler")
     return path
 
@@ -193,3 +193,8 @@ def calculate_file_md5(file_path):
     with open(file_path, 'rb') as f:
         file_bytes = f.read()
     return calculate_str_md5(file_bytes)
+
+
+# Compatibility for callers of the former helper names.
+get_tx8_deps_path = get_wafer_deps_path
+get_tx8_profiler_path = get_wafer_profiler_path

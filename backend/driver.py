@@ -173,8 +173,8 @@ class DICPDriver(DriverBase):
         elif backend == "wafer":
             from .wafer_runtime import (
                 SimulatorUtils,
-                TXDALauncher,
-                TXDAUtils,
+                WaferLauncher,
+                WaferUtils,
                 get_runtime,
             )
 
@@ -184,12 +184,12 @@ class DICPDriver(DriverBase):
                 self.get_current_device = lambda: 0
                 self.set_current_device = lambda device: None
             else:
-                self.utils = TXDAUtils()
+                self.utils = WaferUtils()
                 self.get_current_device = lambda: get_runtime().current_device()
                 self.set_current_device = lambda device: get_runtime().set_device(
                     device
                 )
-            self.launcher_cls = TXDALauncher
+            self.launcher_cls = WaferLauncher
         elif backend == "nvidia":
             from triton.backends.nvidia.driver import CudaLauncher, CudaUtils
 

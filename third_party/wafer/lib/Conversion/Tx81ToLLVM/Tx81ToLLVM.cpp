@@ -472,13 +472,13 @@ struct BarrierConversion : public OpConversionPattern<tx::BarrierOp> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct AtomicBarrierOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct AtomicBarrierOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto module = op->template getParentOfType<ModuleOp>();
     auto i8PtrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
@@ -496,13 +496,13 @@ struct AtomicBarrierOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct Rdma4dOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct Rdma4dOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
 
@@ -552,13 +552,13 @@ struct Rdma4dOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct Rdma1dOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct Rdma1dOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
 
@@ -735,13 +735,13 @@ struct RemoteStoreOpConversion : public OpConversionPattern<tx::RemoteStoreOp> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct RdmaWdmaOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct RdmaWdmaOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto ctx = rewriter.getContext();
@@ -879,13 +879,13 @@ struct MaskMoveOpConversion : public OpConversionPattern<tx::MaskMoveOp> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct TransformOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct TransformOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1043,13 +1043,13 @@ struct GatherScatterOpConversion
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct ArgMinMaxOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct ArgMinMaxOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1102,13 +1102,13 @@ struct ArgMinMaxOpConversion : public OpConversionPattern<Tx81Op> {
 };
 
 // Convert tx81.binary op to LLVM call
-template <typename Tx81Op, const char *funcPrefix>
-struct ReduceOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct ReduceOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1169,14 +1169,14 @@ struct ReduceOpConversion : public OpConversionPattern<Tx81Op> {
 };
 
 // Convert tx81.elementwise op to LLVM call
-template <typename Tx81Op, const char *funcPrefix>
-struct ElementWiseOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
-  // using OpConversionPattern<Tx81Op>::OpConversionPattern;
+template <typename WaferOpT, const char *funcPrefix>
+struct ElementWiseOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
+  // using OpConversionPattern<WaferOpT>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1230,13 +1230,13 @@ struct ElementWiseOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct UnaryOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct UnaryOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1284,13 +1284,13 @@ struct UnaryOpConversion : public OpConversionPattern<Tx81Op> {
 
 // FIXME: Use trait to refactor the BinaryVSOpConversion and
 // ElementWiseOpConversion
-template <typename Tx81Op, const char *funcPrefix>
-struct BinaryVSOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct BinaryVSOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1343,13 +1343,13 @@ struct BinaryVSOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct BinaryLogicVVOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct BinaryLogicVVOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1403,13 +1403,13 @@ struct BinaryLogicVVOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct UnaryBoolLogicVOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct UnaryBoolLogicVOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1454,13 +1454,13 @@ struct UnaryBoolLogicVOpConversion : public OpConversionPattern<Tx81Op> {
   }
 };
 
-template <typename Tx81Op, const char *funcPrefix>
-struct BinaryBoolLogicVOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct BinaryBoolLogicVOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();
@@ -1513,7 +1513,7 @@ template <typename RelationVVOp, const char *funcPrefix>
 struct RelationVVOpConversion : public OpConversionPattern<RelationVVOp> {
   using OpConversionPattern<RelationVVOp>::OpConversionPattern;
   using OpAdaptor = typename RelationVVOp::Adaptor;
-  // using OpConversionPattern<Tx81Op>::OpConversionPattern;
+  // using OpConversionPattern<WaferOpT>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(RelationVVOp op, OpAdaptor adaptor,
@@ -1567,13 +1567,13 @@ struct RelationVVOpConversion : public OpConversionPattern<RelationVVOp> {
 
 // FIXME: Use trait to refactor the RelationVSOpConversion and
 // ElementWiseOpConversion
-template <typename Tx81Op, const char *funcPrefix>
-struct RelationVSOpConversion : public OpConversionPattern<Tx81Op> {
-  using OpConversionPattern<Tx81Op>::OpConversionPattern;
-  using OpAdaptor = typename Tx81Op::Adaptor;
+template <typename WaferOpT, const char *funcPrefix>
+struct RelationVSOpConversion : public OpConversionPattern<WaferOpT> {
+  using OpConversionPattern<WaferOpT>::OpConversionPattern;
+  using OpAdaptor = typename WaferOpT::Adaptor;
 
   LogicalResult
-  matchAndRewrite(Tx81Op op, OpAdaptor adaptor,
+  matchAndRewrite(WaferOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the module for function declarations
     auto module = op->template getParentOfType<ModuleOp>();

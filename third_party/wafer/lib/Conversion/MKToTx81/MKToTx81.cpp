@@ -978,7 +978,7 @@ public:
   }
 };
 
-template <typename MKOpT, typename TxOpT>
+template <typename MKOpT, typename WaferOpT>
 struct MKRelationVVOpConversionPattern : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -998,7 +998,7 @@ struct MKRelationVVOpConversionPattern : public OpConversionPattern<MKOpT> {
     auto outputPtr = createAddressFromMemref(rewriter, loc, output);
     auto elemCount = calculateElemCount(rewriter, op->getLoc(), sizes);
 
-    auto tx81Op = rewriter.create<TxOpT>(
+    auto waferOp = rewriter.create<WaferOpT>(
         loc, rewriter.getI64Type(), input0Ptr, input1Ptr, outputPtr, elemCount,
         rewriter.getI16IntegerAttr(getFormatCode(inputType)));
 
@@ -1007,7 +1007,7 @@ struct MKRelationVVOpConversionPattern : public OpConversionPattern<MKOpT> {
   }
 };
 
-template <typename MKOpT, typename TxOpT>
+template <typename MKOpT, typename WaferOpT>
 struct MKArithVSOpConversionPattern : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -1038,7 +1038,7 @@ struct MKArithVSOpConversionPattern : public OpConversionPattern<MKOpT> {
     auto elemCount = inputType.getNumElements();
     auto inputPtr = createAddressFromMemref(rewriter, loc, input);
     auto outputPtr = createAddressFromMemref(rewriter, loc, output);
-    auto tx81Op = rewriter.create<TxOpT>(
+    auto waferOp = rewriter.create<WaferOpT>(
         loc, rewriter.getI64Type(), inputPtr, i32Value, outputPtr,
         rewriter.create<arith::ConstantIndexOp>(loc, elemCount),
         rewriter.getI16IntegerAttr(RND_MODE::RND_NEAREST_EVEN), // Round mode
@@ -1049,7 +1049,7 @@ struct MKArithVSOpConversionPattern : public OpConversionPattern<MKOpT> {
   }
 };
 
-template <typename MKOpT, typename TxOpT>
+template <typename MKOpT, typename WaferOpT>
 struct MKRelationVSOpConversionPattern : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -1088,7 +1088,7 @@ struct MKRelationVSOpConversionPattern : public OpConversionPattern<MKOpT> {
 
     auto inputPtr = createAddressFromMemref(rewriter, loc, input);
     auto outputPtr = createAddressFromMemref(rewriter, loc, output);
-    auto tx81Op = rewriter.create<TxOpT>(
+    auto waferOp = rewriter.create<WaferOpT>(
         loc, rewriter.getI64Type(), inputPtr, i32Value, outputPtr,
         rewriter.create<arith::ConstantIndexOp>(loc, elemCount),
         rewriter.getI16IntegerAttr(getFormatCode(inputType)));
@@ -1098,7 +1098,7 @@ struct MKRelationVSOpConversionPattern : public OpConversionPattern<MKOpT> {
   }
 };
 
-template <typename MKOpT, typename TxOpT>
+template <typename MKOpT, typename WaferOpT>
 struct MKArgMinMaxConversionPattern : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -1130,7 +1130,7 @@ struct MKArgMinMaxConversionPattern : public OpConversionPattern<MKOpT> {
     auto outValPtr = createAddressFromMemref(rewriter, loc, outVal);
     auto outIdxPtr = createAddressFromMemref(rewriter, loc, outIdx);
 
-    auto tx81Op = rewriter.create<TxOpT>(
+    auto waferOp = rewriter.create<WaferOpT>(
         loc, TypeRange{}, inputPtr, outValPtr, outIdxPtr,
         rewriter.getI32IntegerAttr(innerSize),
         rewriter.getI16IntegerAttr(getFormatCode(valueType)));
@@ -1168,7 +1168,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult convertUnaryOp(linalg::GenericOp op, OpAdaptor adapter,
                                ConversionPatternRewriter &rewriter) const {
     Location loc = op->getLoc();
@@ -1182,14 +1182,14 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     Data_Format srcFmt = getFormatCode(inputType);
 
     // Create the unary operation
-    rewriter.create<TxOpT>(loc, rewriter.getI64Type(), input, output, elemCount,
+    rewriter.create<WaferOpT>(loc, rewriter.getI64Type(), input, output, elemCount,
                            rewriter.getI16IntegerAttr(srcFmt));
 
     rewriter.eraseOp(op);
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult convertBinaryOp(linalg::GenericOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
     Location loc = op->getLoc();
@@ -1207,7 +1207,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
 
     // Create the elementwise operation
     // TODO: Fix attribute
-    rewriter.create<TxOpT>(loc, rewriter.getI64Type(), input0, input1, output,
+    rewriter.create<WaferOpT>(loc, rewriter.getI64Type(), input0, input1, output,
                            elemCount,
                            rewriter.getI16IntegerAttr(0), // Round mode
                            rewriter.getI16IntegerAttr(srcFmt));
@@ -1216,7 +1216,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult
   convertBoolBinaryLogicOp(linalg::GenericOp op, OpAdaptor adaptor,
                            ConversionPatternRewriter &rewriter) const {
@@ -1243,14 +1243,14 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     // Creat new element count value.
     Value elemCountValue =
         rewriter.create<arith::ConstantIndexOp>(loc, elemCount);
-    rewriter.create<TxOpT>(loc, rewriter.getI64Type(), input0, input1, output,
+    rewriter.create<WaferOpT>(loc, rewriter.getI64Type(), input0, input1, output,
                            elemCountValue);
 
     rewriter.eraseOp(op);
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult ZeroPointConvertOp(linalg::GenericOp op, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
     Location loc = op->getLoc();
@@ -1260,12 +1260,12 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     auto elemCount =
         cast<MemRefType>(op->getOperandTypes()[0]).getNumElements();
 
-    rewriter.create<TxOpT>(loc, input, output, 0, (uint32_t)elemCount);
+    rewriter.create<WaferOpT>(loc, input, output, 0, (uint32_t)elemCount);
     rewriter.eraseOp(op);
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult NormalConvertOp(linalg::GenericOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
     Location loc = op->getLoc();
@@ -1274,13 +1274,13 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
         createMetadata(rewriter, op->getLoc(), adaptor.getOutputs()[0]);
     auto elemCount = calculateElemCount(rewriter, op->getLoc(), sizes);
 
-    rewriter.create<TxOpT>(loc, rewriter.getI64Type(), input, output,
+    rewriter.create<WaferOpT>(loc, rewriter.getI64Type(), input, output,
                            elemCount);
     rewriter.eraseOp(op);
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult
   RoundConvertOp(linalg::GenericOp op, OpAdaptor adaptor,
                  ConversionPatternRewriter &rewriter,
@@ -1291,7 +1291,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
         createMetadata(rewriter, op->getLoc(), adaptor.getOutputs()[0]);
     auto elemCount = calculateElemCount(rewriter, op->getLoc(), sizes);
     // TODO: Fix attribute
-    auto result = rewriter.create<TxOpT>(
+    auto result = rewriter.create<WaferOpT>(
         loc,
         rewriter.getI64Type(),                // Result type
         input,                                // Input
@@ -1303,7 +1303,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
     return success();
   }
 
-  template <typename TxOpT>
+  template <typename WaferOpT>
   LogicalResult BoolRelationVVOp(linalg::GenericOp op, OpAdaptor adaptor,
                                  ConversionPatternRewriter &rewriter) const {
     Location loc = op->getLoc();
@@ -1322,7 +1322,7 @@ struct ElementwiseConversion : public OpConversionPattern<linalg::GenericOp> {
 
     // Create the elementwise operation
     // TODO: Fix attribute
-    rewriter.create<TxOpT>(loc, rewriter.getI64Type(), input0, input1, output,
+    rewriter.create<WaferOpT>(loc, rewriter.getI64Type(), input0, input1, output,
                            elemCount,
                            rewriter.getI16IntegerAttr(srcFmt) // Format
     );
@@ -1734,7 +1734,7 @@ public:
   }
 };
 
-template <typename MKOpT, typename Tx81Op>
+template <typename MKOpT, typename WaferOpT>
 struct MKReduceOpConversion : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -1759,7 +1759,7 @@ public:
 
     auto format = getFormatCode(inputType);
 
-    rewriter.replaceOpWithNewOp<Tx81Op>(
+    rewriter.replaceOpWithNewOp<WaferOpT>(
         op, TypeRange{}, srcPtr, outputPtr,
         rewriter.getUI32IntegerAttr(axis == 3 ? 0 /*reduce C dim*/
                                               : 1 /*reduce W dim*/),
@@ -1768,7 +1768,7 @@ public:
   }
 };
 
-template <typename MKOpT, typename TxOpT>
+template <typename MKOpT, typename WaferOpT>
 struct BarrierConversion : public OpConversionPattern<MKOpT> {
   using OpConversionPattern<MKOpT>::OpConversionPattern;
   using OpAdaptor = typename MKOpT::Adaptor;
@@ -1777,7 +1777,7 @@ struct BarrierConversion : public OpConversionPattern<MKOpT> {
   matchAndRewrite(MKOpT op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    rewriter.create<TxOpT>(loc);
+    rewriter.create<WaferOpT>(loc);
     rewriter.eraseOp(op);
 
     return success();

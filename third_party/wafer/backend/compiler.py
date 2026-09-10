@@ -2,7 +2,7 @@ from triton.backends.compiler import BaseBackend
 
 
 class WaferExternalBackend(BaseBackend):
-    binary_ext = "txfatbin"
+    binary_ext = "o"
 
     @classmethod
     def supports_target(cls, target):

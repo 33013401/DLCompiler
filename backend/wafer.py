@@ -17,7 +17,7 @@ from .wafer_cache import cache_digest, file_fingerprint
 
 
 @dataclass(frozen=True)
-class TXDAOptions:
+class WaferOptions:
     debug: bool = False
     arch: str = None
     num_warps: int = 0
@@ -286,10 +286,10 @@ def device_log_abi():
 
 
 def _runtime_link_inputs():
-    tx8_root = Path(os.environ["TX8_DEPS_ROOT"])
+    wafer_deps_root = Path(os.environ["TX8_DEPS_ROOT"])
     toolchain_root = Path(
         os.getenv(
-            "XUANTIE_NAME", tx8_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"
+            "XUANTIE_NAME", wafer_deps_root / "Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2"
         )
     )
     linker = toolchain_root / "bin" / "riscv64-unknown-elf-gcc"
@@ -301,14 +301,14 @@ def _runtime_link_inputs():
             Path(__file__).resolve().parent.parent / "third_party" / "wafer" / "lib"
         )
 
-    required = [linker, wafer_lib_dir, tx8_root / "lib"]
+    required = [linker, wafer_lib_dir, wafer_deps_root / "lib"]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise RuntimeError(
             "Wafer runtime link dependencies are missing: " + ", ".join(missing)
         )
     libraries = [
-        tx8_root / "lib" / name
+        wafer_deps_root / "lib" / name
         for name in ("libcommon_util.a", "libinstr_tx81.a", "liblibc_stub.a")
     ]
     libraries.append(wafer_lib_dir / "libvr.a")
@@ -429,7 +429,15 @@ def simulator_enabled():
     return os.getenv("USE_SIM_MODE", "0").lower() in ("1", "true", "yes")
 
 
-class TXDABackend(BaseBackend):
+def __getattr__(name):
+    # Keep explicit legacy imports without advertising duplicate backend classes.
+    aliases = {"TXDAOptions": WaferOptions, "TXDABackend": WaferBackend}
+    if name in aliases:
+        return aliases[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+class WaferBackend(BaseBackend):
     def __init__(self, target):
         super().__init__(target)
         self.simulator = simulator_enabled()
@@ -444,11 +452,11 @@ class TXDABackend(BaseBackend):
     def parse_options(self, options: dict) -> Any:
         arguments = {
             name: options[name]
-            for name in TXDAOptions.__dataclass_fields__
+            for name in WaferOptions.__dataclass_fields__
             if name in options
         }
         arguments.setdefault("arch", self.target.arch)
-        return TXDAOptions(**arguments)
+        return WaferOptions(**arguments)
 
     def hash(self):
         inputs = {

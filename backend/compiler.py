@@ -127,9 +127,9 @@ class DICPBackend(BaseBackend):
             self.capability = 80
             self.binary_ext = "mcfatbin"
         elif self.driver.target == "wafer":
-            from triton.backends.dicp_triton.wafer import TXDABackend
+            from triton.backends.dicp_triton.wafer import WaferBackend
 
-            self._wafer_backend = TXDABackend(target)
+            self._wafer_backend = WaferBackend(target)
             self.binary_ext = self._wafer_backend.binary_ext
         else:
             raise RuntimeError(f"Target '{self.driver.target}' is not supported.")
