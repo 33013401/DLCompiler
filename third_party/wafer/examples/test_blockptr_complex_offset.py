@@ -33,4 +33,4 @@ def test(device):
     grid = lambda meta: (1, )
 
     block_copy_kernel[grid](input, output)
-    torch.equal(expected, output)
+    assert torch.equal(expected, output)

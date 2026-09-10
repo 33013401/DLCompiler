@@ -4,7 +4,6 @@ import triton
 
 import triton.language as tl
 
-from triton.backends.ztc.driver import CPUDriver
 
 
 @triton.jit
@@ -18,7 +17,7 @@ def sign_extend(off, in0, out0, in0_size):
 def compile():
     src = triton.compiler.ASTSource(
         fn=sign_extend,
-        signature="*i32,*fp32,*fp32,i32",
+        signature={'off': '*i32', 'in0': '*fp32', 'out0': '*fp32', 'in0_size': 'i32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])
@@ -26,7 +25,7 @@ def compile():
 
 def test_sign_extend(device):
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 4
     offsets = torch.full((1, ), 1, device=device, dtype=torch.int32)

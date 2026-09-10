@@ -74,6 +74,7 @@ def test(device):
     print("output_triton device: ", output_triton.device)
     # TODO: need to check some conditions otherwise the code below does not make any difference for the test
     output_triton = output_triton.to("cpu")
+    torch.testing.assert_close(output_triton, output_torch, atol=1e-5, rtol=0)
     print("expected", output_torch)
     print("actual", output_triton)
     print(f"The maximum difference between torch and triton is "

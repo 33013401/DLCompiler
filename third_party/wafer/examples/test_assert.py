@@ -21,8 +21,10 @@ def kernel_device_assert_tensor(COND, n_elements, BLOCK: tl.constexpr):
 
 
 @pytest.mark.parametrize('cond', [True, False])
-def test_assert_scalar(cond):
-    kernel_device_assert_scalar[(1, )](cond, BLOCK=16)
+def test_assert_scalar(cond, request):
+    if not cond and request.config.getoption("--wafer-execution") == "hardware":
+        pytest.skip("False device assertions call firmware RT_ASSERT(0); compile coverage only on this shared card")
+    kernel_device_assert_scalar[(1, )](cond, BLOCK=16, debug=True)
 
 
 @pytest.mark.parametrize('cond_list', [
@@ -32,11 +34,13 @@ def test_assert_scalar(cond):
     [True],
     [False],
 ])
-def test_assert_tensor(cond_list):
+def test_assert_tensor(cond_list, request):
+    if not all(cond_list) and request.config.getoption("--wafer-execution") == "hardware":
+        pytest.skip("False device assertions call firmware RT_ASSERT(0); compile coverage only on this shared card")
     cond_tensor = torch.tensor(cond_list, dtype=torch.bool, device=DEVICE)
     n_elements = cond_tensor.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK']), )
-    kernel_device_assert_tensor[grid](cond_tensor, n_elements, BLOCK=16)
+    kernel_device_assert_tensor[grid](cond_tensor, n_elements, BLOCK=16, debug=True)
 
 
 def run_all_tests():

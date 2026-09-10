@@ -17,6 +17,7 @@ def test_print():
     x.reshape(4, 4)
     y = torch.zeros_like(x)
     kernel_device_print[(1, )](x, y, BLOCK=16)
+    torch.testing.assert_close(y, x)
 
 
 if __name__ == "__main__":

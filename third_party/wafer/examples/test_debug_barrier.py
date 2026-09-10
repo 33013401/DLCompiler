@@ -19,6 +19,7 @@ def test_barrier():
     # Launch the kernel
     grid = (1, )
     barrier[grid](data)
+    torch.testing.assert_close(data, torch.ones_like(data))
 
 
 if __name__ == "__main__":

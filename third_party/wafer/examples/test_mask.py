@@ -3,7 +3,6 @@ import torch
 import triton
 import triton.language as tl
 
-from triton.backends.ztc.driver import CPUDriver
 
 
 def test_mask(device):
@@ -20,13 +19,13 @@ def test_mask(device):
     output = torch.full((SIZE, ), -2, device=device, dtype=torch.int32)
 
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     grid = lambda meta: (1, )
 
     src = triton.compiler.ASTSource(
         fn=test,
-        signature="*fp32,*fp32,i32",
+        signature={'in0': '*fp32', 'out0': '*fp32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])

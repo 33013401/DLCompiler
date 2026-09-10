@@ -19,9 +19,9 @@ from triton._internal_testing import (
     is_hopper,
     is_hip,
     is_hip_cdna,
-    is_hip_mi200,
-    is_hip_mi300,
-    is_hip_mi350,
+    is_hip_cdna2,
+    is_hip_cdna3,
+    is_hip_cdna4,
     is_xpu,
     get_arch,
     torch_float8_dtypes,
@@ -100,7 +100,7 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
         if not is_hip_cdna():
             pytest.skip("scaled_dot only implemented for HIP CDNA")
         if "e4m3" in (mxfp_type, normal_type):
-            if not (is_hip_mi300() or is_hip_mi350()):
+            if not (is_hip_cdna3() or is_hip_cdna4()):
                 pytest.skip(f"scaled_dot({mxfp_type}, {normal_type}) only implemented for MI300 and MI350")
         if mma == 16 and K == 64:
             pytest.skip(f"K == {K} too small for mfma {mma} in scaled_dot")
@@ -275,7 +275,7 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
             # Clamp to avoid relative error issues
             ret.clamp_(-2**comp_dtype_max_exp, 2**comp_dtype_max_exp - 1)
         else:
-            if is_hip_mi350():
+            if is_hip_cdna4():
                 # On other chips, the A/B operands are upcasted to fp16/bf16
                 # before matmul, which has larger range to avoid overflow.
                 # On MI350, we use the V_MFMA_*_F8F6F4 instructions to
@@ -341,8 +341,8 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
     # test_scaled_dot[128-64-128-False-False-True-e4m3-fp16-4-16-1]
     # test_scaled_dot[128-128-64-True-True-False-e2m1-e5m2-4-16-1]
 
-    # atol = 2e-4 if is_hip_mi200() else 1e-5
-    # rtol = 2e-2 if is_hip_mi200() else 1e-2
+    # atol = 2e-4 if is_hip_cdna2() else 1e-5
+    # rtol = 2e-2 if is_hip_cdna2() else 1e-2
     # torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
 
     flaggems_assert_close(z, z_ref, dtype=comp_dtype, reduce_dim=K)

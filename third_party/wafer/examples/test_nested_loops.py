@@ -2,7 +2,6 @@ import torch
 
 import triton
 from triton.backends.compiler import GPUTarget
-from triton.backends.ztc.driver import CPUDriver
 import triton.language as tl
 
 
@@ -265,7 +264,7 @@ def test_nested3():
              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
          ]], dtype=torch.int32, device='cpu')
-    triton.runtime.driver.set_active(CPUDriver())
+    pass  # Wafer driver is selected by conftest.py.
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
     output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
     grid = lambda meta: (n_cols // 4, )
@@ -281,7 +280,7 @@ def test_nested3():
 
     src = triton.compiler.ASTSource(
         fn=nested3,
-        signature="*fp32,*fp32,i32,i32",
+        signature={'in_ptr': '*fp32', 'out_ptr': '*fp32', 'stride_m': 'i32', 'stride_n': 'i32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])
@@ -298,7 +297,7 @@ def test_nested2_use_loop_results():
          [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
         device='cpu', dtype=torch.int32)
     # x = torch.arange(0, n_rows * n_cols, device="cuda", dtype=torch.int32).reshape([n_rows, n_cols])
-    triton.runtime.driver.set_active(CPUDriver())
+    pass  # Wafer driver is selected by conftest.py.
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
     output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
     grid = lambda meta: (n_cols // 4, )
@@ -314,7 +313,7 @@ def test_nested2_use_loop_results():
 
     src = triton.compiler.ASTSource(
         fn=nested2_use_loop_results,
-        signature="*fp32,*fp32,i32,i32",
+        signature={'in_ptr': '*fp32', 'out_ptr': '*fp32', 'stride_m': 'i32', 'stride_n': 'i32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])
@@ -329,7 +328,7 @@ def test_nested2_complex_body():
                              [0, 0, 26, 27, 0, 29, 30, 0]], device='cpu', dtype=torch.int32)
 
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
-    triton.runtime.driver.set_active(CPUDriver())
+    pass  # Wafer driver is selected by conftest.py.
     output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
 
     print('before:')
@@ -343,7 +342,7 @@ def test_nested2_complex_body():
 
     src = triton.compiler.ASTSource(
         fn=nested2_complex_body,
-        signature="*fp32,*fp32,i32,i32",
+        signature={'a_ptr': '*fp32', 'c_ptr': '*fp32', 'stride_m': 'i32', 'stride_n': 'i32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])
@@ -362,7 +361,7 @@ def test_nested2_use_same_level_loop_result():
                             device='cpu', dtype=torch.int32)
 
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
-    triton.runtime.driver.set_active(CPUDriver())
+    pass  # Wafer driver is selected by conftest.py.
     output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
 
     print('before:')
@@ -376,7 +375,7 @@ def test_nested2_use_same_level_loop_result():
 
     src = triton.compiler.ASTSource(
         fn=nested_use_same_level_loop_results,
-        signature="*fp32,*fp32,i32,i32",
+        signature={'in_ptr': '*fp32', 'out_ptr': '*fp32', 'stride_m': 'i32', 'stride_n': 'i32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])

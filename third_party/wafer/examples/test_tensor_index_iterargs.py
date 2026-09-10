@@ -3,7 +3,6 @@ import torch
 import triton
 import triton.language as tl
 
-from triton.backends.ztc.driver import CPUDriver
 
 
 def test_tensor_indices_nested_with_mask(device):
@@ -29,7 +28,7 @@ def test_tensor_indices_nested_with_mask(device):
     output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
 
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     grid = lambda meta: (1, )
 
@@ -66,7 +65,7 @@ def test_tensor_indices_nested(device):
     output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
 
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     grid = lambda meta: (1, )
 
@@ -98,7 +97,7 @@ def test_integer_tensor(device):
     output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
 
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     grid = lambda meta: (1, )
 
@@ -109,7 +108,7 @@ def test_integer_tensor(device):
     torch.testing.assert_close(input, output)
     src = triton.compiler.ASTSource(
         fn=test_1,
-        signature="*fp32",
+        signature={'out0': '*fp32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])

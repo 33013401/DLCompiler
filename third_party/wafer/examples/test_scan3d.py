@@ -105,7 +105,7 @@ def test_scan3d(op, dtype_str, shape, axis, reverse, device):
     rs = RandomState(17)
 
     # x = numpy_random(shape, dtype_str=dtype_str, rs=rs)
-    x = np.arange(0, np.prod(shape), dtype=np.float32, device=device).reshape(shape)
+    x = np.arange(0, np.prod(shape), dtype=np.float32).reshape(shape)
     print(x)
     # y is just used in linear_recurrence
     y = numpy_random(shape, dtype_str=dtype_str, rs=rs)

@@ -150,3 +150,4 @@ def test_libdevice_rename(device):
     out = torch.empty_like(inp)
 
     triton_copy[(1, )](inp, out, BLOCK_SIZE)
+    torch.testing.assert_close(out, inp)

@@ -3,7 +3,6 @@ import torch
 import triton
 import triton.language as tl
 
-from triton.backends.ztc.driver import CPUDriver
 
 
 @triton.jit
@@ -20,7 +19,7 @@ def early_return(in0, out0):
 def compile(device):
     src = triton.compiler.ASTSource(
         fn=early_return,
-        signature="*fp32,*fp32",
+        signature={'in0': '*fp32', 'out0': '*fp32'},
     )
     ret = triton.compile(src, )
     print(ret.asm["ttir"])
@@ -28,7 +27,7 @@ def compile(device):
 
 def test_return_case(device):
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 8
     input = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
@@ -43,7 +42,7 @@ def test_return_case(device):
 
 def test_normal_case(device):
     if device == 'cpu':
-        triton.runtime.driver.set_active(CPUDriver())
+        pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 8
     input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
