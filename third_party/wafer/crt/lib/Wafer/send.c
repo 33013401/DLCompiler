@@ -103,9 +103,42 @@ int initTileId(uint32_t tileId, uint32_t rowLength) {
   return 0;
 }
 
-// Asynchronously send data to a destination tile.
-// The operation reads from the given source buffer and sends it to the remote
-// tile. The operation is non-blocking and returns immediately.
+static void noc_memory_fence(void) {
+#ifdef __riscv
+  __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+#else
+  __sync_synchronize();
+#endif
+}
+
+// SINGLE_SPM_SYNC reserves 0x320..0x370 for the ring protocol. Use its first
+// two words for request/acknowledgement. A sender cannot publish its next
+// request until its previous request has been consumed and acknowledged.
+// This prevents a fast tile from overwriting an unconsumed boolean signal.
+static void noc_ring_sync(uint32_t previous, uint32_t next) {
+  volatile uint32_t *local =
+      (volatile uint32_t *)get_spm_memory_mapping(SINGLE_SPM_SYNC_ADDR);
+  volatile uint32_t *previous_spm = (volatile uint32_t *)(
+      get_tile_spm_addr_base(previous, 4, 4) + SINGLE_SPM_SYNC_ADDR);
+  volatile uint32_t *next_spm = (volatile uint32_t *)(
+      get_tile_spm_addr_base(next, 4, 4) + SINGLE_SPM_SYNC_ADDR);
+
+  noc_memory_fence();
+  previous_spm[0] = 1;
+  while (!local[0]) {
+  }
+  noc_memory_fence();
+  local[0] = 0;
+  noc_memory_fence();
+  next_spm[1] = 1;
+  while (!local[1]) {
+  }
+  noc_memory_fence();
+  local[1] = 0;
+  noc_memory_fence();
+}
+
+// Send to the next tile and wait for both transmission and ring reception.
 void __Send(int64_t chipX, int64_t chipY, int64_t dieId, int64_t tileId,
             void *restrict dst, void *restrict src, uint32_t elem_bytes,
             uint64_t data_size) {
@@ -145,7 +178,7 @@ void __Send(int64_t chipX, int64_t chipY, int64_t dieId, int64_t tileId,
                                 .tile_this = coreIndex,
                                 .dte_node = fdteNode};
   set_direct_fsm_monitor_dst_addr(fringFsmId, nextTileBaseAddr + (uint64_t)dst);
-  tile_sync_by_spm_single_direction(coreIndex, preTileId, 4, 4, 0, 0);
+  noc_ring_sync(preTileId, nextTileId);
   direct_dte_send_async(&fdteInfo); // 把当前数据异步发送给下一个tile
   // __EP_LOG__(KCORE_LOG_DEBUG, "send data to next tile: %u, current
   // tile:%u.\n",
@@ -159,7 +192,7 @@ void __Send(int64_t chipX, int64_t chipY, int64_t dieId, int64_t tileId,
   direct_dte_wait_done(&fdteInfo); // 等待异步发送完成
   TsmWaitfinish();
 
-  tile_sync_by_spm_single_direction(coreIndex, preTileId, 4, 4, 0, 0);
+  noc_ring_sync(preTileId, nextTileId);
   direct_dte_release(fdteNode);
   direct_fsm_monitor_deinit(fringFsmHd);
   // __EP_LOG__(0, "-------- Send\n")

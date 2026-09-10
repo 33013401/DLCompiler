@@ -5,7 +5,9 @@ import shutil
 import subprocess
 import sysconfig
 import tempfile
+from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 
 from triton.runtime.cache import get_cache_manager
 
@@ -368,3 +370,46 @@ class WaferLauncher:
             )
         arguments[5] = self.metadata
         return self.launch(*arguments, **kwargs)
+
+
+@lru_cache(maxsize=8)
+def _noc_initializer(toolchain_key):
+    from . import wafer
+
+    declarations = {
+        "module_init": "void @module_init(ptr)",
+        "module_cleanup": "void @module_cleanup(ptr)",
+        "__NoCRingInit": "void @__NoCRingInit()",
+    }
+    entry = "__wafer_noc_init"
+    source = ""
+    for name in (entry, *declarations):
+        source += (f'@name_{name} = weak constant [{len(name) + 1} x i8] '
+                   f'c"{name}\\00", section ".rodata.name", align 1\n')
+        source += (f'@export_{name} = constant {{ptr, ptr}} '
+                   f'{{ptr @{name}, ptr @name_{name}}}, section "ExportedDYNSYMTab", align 8\n')
+    source += "\n".join("declare " + declaration for declaration in declarations.values())
+    source += (f"\ndefine void @{entry}(ptr %args) {{\n"
+               "  call void @__NoCRingInit()\n  ret void\n}\n")
+    metadata = {"name": entry, "launch_mode": "cluster"}
+    wafer.object_to_binary(wafer.llir_to_object(source, metadata, simulator=False),
+                           metadata, simulator=False)
+    src = SimpleNamespace(signature={})
+    return WaferLauncher(src, SimpleNamespace(**metadata))
+
+
+def initialize_noc(stream=None):
+    """Clear the ring's two sync words on all 16 tiles and wait for completion.
+
+    Call before a NoC collective, after previous device work has completed.
+    The separate cluster kernel prevents late tile initialization from erasing
+    a peer's request. Firmware recovery alone does not clear these SPM words.
+    """
+    from triton.backends.compiler import GPUTarget
+    from .wafer import WaferBackend, runtime_binary_enabled, simulator_enabled
+
+    if simulator_enabled() or not runtime_binary_enabled():
+        raise RuntimeError("NoC initialization requires the Wafer hardware runtime")
+    key = WaferBackend(GPUTarget("wafer", "tx81", 32)).hash()
+    launcher = _noc_initializer(key)
+    launcher(16, 1, 1, stream, 0, None, None, None, None)

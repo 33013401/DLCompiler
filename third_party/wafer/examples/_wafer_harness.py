@@ -97,6 +97,9 @@ def pytest_configure(config):
         STATE["compiled"] += 1
         record("compiled", kernel=metadata.name, path=metadata.kernel_path)
         if config.getoption("--wafer-execution") == "compile":
+            if metadata.name == "__wafer_noc_init":
+                # Let the dependent GEMM compile and be audited as well.
+                return None
             pytest.skip("Compiled and ELF-audited; hardware execution not requested in this phase")
         if transport is None:
             transport = StorageTransport(runtime.library)

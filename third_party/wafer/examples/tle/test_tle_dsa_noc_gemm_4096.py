@@ -115,6 +115,8 @@ def run(m=M, n=N, k=K, device="cpu", pattern="random", seed=0):
         raise ValueError(f"Unknown input pattern: {pattern}")
     c = torch.full((m, n), float("nan"), device=device, dtype=torch.float16)
     send_next_lut, ring_index_lut = build_ring_luts(MESH, device)
+    from triton.backends.dicp_triton.wafer_runtime import initialize_noc
+    initialize_noc()
     dsa_shift_n_gemm_kernel[(TILE_NUM,)](
         a, b, c, send_next_lut, ring_index_lut,
         M=m, N=n, K=k, BLOCK_M=m // TILE_NUM, BLOCK_K=k,
