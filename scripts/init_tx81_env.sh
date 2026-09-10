@@ -40,7 +40,11 @@ export WAFER_TX8_INCLUDE_DIR=${WAFER_TX8_INCLUDE_DIR:-$TX8_DEPS_ROOT/include}
 export TX8_YOC_RT_THREAD_SMP=${TX8_YOC_RT_THREAD_SMP:-$TX8_DEPS_ROOT/tx8-yoc-rt-thread-smp}
 export XUANTIE_NAME=${XUANTIE_NAME:-$TX8_DEPS_ROOT/Xuantie-900-gcc-elf-newlib-x86_64-V2.10.2}
 export WAFER_BUILD_DIR=${WAFER_BUILD_DIR:-$TX81_WORKSPACE_ROOT/build/wafer}
-export WAFER_RUNTIME_LIB_DIR=${WAFER_RUNTIME_LIB_DIR:-$WAFER_BUILD_DIR/third_party/wafer/crt/lib}
+# Installed wheels include libvr.a; only override that default when this
+# workspace also has a freshly built hardware CRT.
+if [[ -z ${WAFER_RUNTIME_LIB_DIR:-} && -f "$WAFER_BUILD_DIR/third_party/wafer/crt/lib/libvr.a" ]]; then
+    export WAFER_RUNTIME_LIB_DIR="$WAFER_BUILD_DIR/third_party/wafer/crt/lib"
+fi
 export DICP_BACKEND=wafer
 export USE_SIM_MODE=${USE_SIM_MODE:-1}
 # This workspace uses Kuiper 1.4 firmware with the RCS device logging API.
