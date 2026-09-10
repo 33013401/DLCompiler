@@ -121,6 +121,17 @@ class RawBuffer:
     def data_ptr(self):
         return self.pointer.value
 
+    def reset(self):
+        self.runtime.check(
+            self.runtime.library.txMemcpy(
+                self.pointer,
+                ctypes.c_void_p(self.host.ctypes.data),
+                self.host.nbytes,
+                1,
+            ),
+            "reset output H2D",
+        )
+
     def cpu(self):
         result = np.empty_like(self.host)
         self.runtime.check(
@@ -132,7 +143,7 @@ class RawBuffer:
         return result
 
 
-def invoke(kernel, args, grid, iterations):
+def invoke(kernel, args, grid, iterations, reset, verify):
     calls = []
     saved = (knobs.runtime.launch_enter_hook, knobs.runtime.launch_exit_hook)
     knobs.runtime.launch_enter_hook = lambda metadata: calls.append(
@@ -142,13 +153,18 @@ def invoke(kernel, args, grid, iterations):
         ("exit", metadata.get()["name"])
     )
     try:
+        reset()
         kernel[grid](*args)
+        verify()
         launcher, module = kernel._run, kernel.module
         memory_before = free_device_memory()
-        started = time.monotonic()
+        elapsed = 0.0
         for _ in range(iterations - 1):
+            reset()
+            started = time.monotonic()
             kernel[grid](*args)
-        elapsed = time.monotonic() - started
+            elapsed += time.monotonic() - started
+            verify()
         print(
             f"repeat launch mean={elapsed / (iterations - 1) * 1000:.3f}ms; device free memory change={free_device_memory() - memory_before} bytes",
             flush=True,
@@ -255,26 +271,37 @@ def run_case(case, iterations, torch_mode, compile_only=False):
 
             assert driver.active.get_current_stream(0) == stream.txda_stream
             args = buffers + scalars
+            reset_host = torch.from_numpy(hosts[-1])
+            if hosts[-1].dtype == np.uint16:
+                reset_host = reset_host.view(torch.bfloat16)
+
+            def reset():
+                buffers[-1].copy_(reset_host)
+
         else:
             runtime = RawRuntime()
             buffers = [stack.enter_context(runtime.buffer(host)) for host in hosts]
             # Exercise both integer pointers and data_ptr() objects in one launch.
             args = [buffers[0].data_ptr(), *buffers[1:], *scalars]
-        invoke(kernel, args, grid, iterations)
-        if torch_mode:
-            stream.synchronize()
-            output = buffers[-1].cpu()
-            result = (
-                output.view(torch.uint16).numpy()
-                if hosts[-1].dtype == np.uint16
-                else output.numpy()
-            )
-        else:
-            result = buffers[-1].cpu()
-        np.testing.assert_array_equal(result, expected)
+            reset = buffers[-1].reset
+
+        def verify():
+            if torch_mode:
+                stream.synchronize()
+                output = buffers[-1].cpu()
+                result = (
+                    output.view(torch.uint16).numpy()
+                    if hosts[-1].dtype == np.uint16
+                    else output.numpy()
+                )
+            else:
+                result = buffers[-1].cpu()
+            np.testing.assert_array_equal(result, expected)
+
+        invoke(kernel, args, grid, iterations, reset, verify)
         print(
-            f"PASS {case}: {result.size} elements, grid={grid}, iterations={iterations}, "
-            f"{'TXDA tensor/non-default stream' if torch_mode else 'raw pointers/data_ptr'}, hooks verified",
+            f"PASS {case}: {expected.size} elements, grid={grid}, iterations={iterations}, "
+            f"{'TXDA tensor/non-default stream' if torch_mode else 'raw pointers/data_ptr'}, hooks and every iteration verified",
             flush=True,
         )
 
@@ -326,21 +353,34 @@ def run_jit(iterations, compile_only=False):
             lhs, rhs, output, 1.25, size, BLOCK=256, grid=(triton.cdiv(size, 256),)
         )
         audit_kernel(prepared.metadata.kernel_path, prepared.metadata.device_log_abi)
+        expected = host * 1.5 + 1.25
+        reset_host = torch.zeros_like(host)
         with torch.txda.stream(stream):
+            output.copy_(reset_host)
             kernel = wafer_vector[(triton.cdiv(size, 256),)](
                 lhs, rhs, output, 1.25, size, BLOCK=256
             )
+            torch.testing.assert_close(output.cpu(), expected, rtol=0, atol=0)
             launcher = kernel._run
+            memory_before = free_device_memory()
+            elapsed = 0.0
             for _ in range(iterations - 1):
+                output.copy_(reset_host)
+                started = time.monotonic()
                 cached = wafer_vector[(triton.cdiv(size, 256),)](
                     lhs, rhs, output, 1.25, size, BLOCK=256
                 )
+                elapsed += time.monotonic() - started
                 assert cached is kernel and cached._run is launcher
+                torch.testing.assert_close(output.cpu(), expected, rtol=0, atol=0)
             stream.synchronize()
-        torch.testing.assert_close(output.cpu(), host * 1.5 + 1.25, rtol=0, atol=0)
+            print(
+                f"repeat JIT launch mean={elapsed / (iterations - 1) * 1000:.3f}ms; device free memory change={free_device_memory() - memory_before} bytes",
+                flush=True,
+            )
         assert kernel.metadata.device_log_abi == os.environ["WAFER_DEVICE_LOG_ABI"]
         print(
-            f"PASS JIT: size={size}, constexpr=256, iterations={iterations}, specialization/cache reuse verified",
+            f"PASS JIT: size={size}, constexpr=256, iterations={iterations}, specialization/cache reuse and every iteration verified",
             flush=True,
         )
 
