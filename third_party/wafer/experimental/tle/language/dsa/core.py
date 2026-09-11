@@ -114,6 +114,8 @@ def copy(src, dst, shape, offsets: Sequence[constexpr | tensor] = None,
     """
     from .semantic import DSASemantic
 
+    # Copy the complete local buffer; sub-buffer offsets are not implemented.
+    # A caller can offset the GM pointer before passing it to this function.
     if offsets is not None:
         raise NotImplementedError("DSA copy offsets are not supported; pass an adjusted pointer")
     shape = DSASemantic.validate_alloc_shape(tl._unwrap_if_constexpr(shape))
@@ -125,20 +127,33 @@ def copy(src, dst, shape, offsets: Sequence[constexpr | tensor] = None,
         if isinstance(value, tle.buffered_tensor):
             if value.type.shape != shape:
                 raise ValueError("copy shape must match the complete DSA buffer")
+            # Remote buffer handles need an explicit remote pointer view.
             if hasattr(value.type, "_tle_remote_shard_id"):
                 raise NotImplementedError("Use local_ptr(remote(buffer, tile)) for NoC transfers")
+
+    # Local -> local: both handles are memrefs, as required by dsa.copy.
+    # The binding takes the Triton 3.5 semantic object's builder explicitly.
     if src_is_buf and dst_is_buf:
         DSASemantic.validate_copy_dtype_compat(src.dtype, dst.dtype)
         _dsa_ir.create_dsa_copy(_semantic.builder, src.handle, dst.handle)
         return
+
+    # GM <-> local: exactly one operand is a buffer. A Triton pointer cannot
+    # be passed to dsa.copy, so use pointer views and emit load/store IR below.
     buffer = src if src_is_buf else dst
     gm = dst if src_is_buf else src
     if not isinstance(gm, tl.tensor) or not gm.dtype.is_ptr():
         raise ValueError("The global operand of DSA copy must be a pointer tensor")
     DSASemantic.validate_copy_dtype_compat(buffer.dtype, gm.dtype.element_ty)
+
+    # Broadcast each coordinate axis to the full buffer shape. local_ptr only
+    # builds an address view of the buffer; it does not copy any data itself.
     indices = _make_full_indices(buffer, _semantic)
     ptr = local_ptr(buffer, indices, _semantic=_semantic)
     if not gm.shape:
+        # A scalar GM base pointer denotes contiguous row-major storage.
+        # Expand it to one pointer per element: shape (M, N) gives i * N + j.
+        # Pointer addition uses element offsets, so no byte-size factor is needed.
         linear = tl.full(shape, 0, tl.int32, _semantic=_semantic)
         stride = 1
         for axis in builtins.range(len(shape) - 1, -1, -1):
@@ -148,9 +163,15 @@ def copy(src, dst, shape, offsets: Sequence[constexpr | tensor] = None,
         gm = gm.__add__(linear, _semantic=_semantic)
     elif tuple(gm.shape) != shape:
         raise ValueError("Global pointer tensor shape must match the DSA buffer")
+
+    # An already-shaped pointer tensor keeps its caller-supplied addressing.
+    # These transfers are unmasked: every supplied GM address must be valid.
+    # _semantic makes these tl calls generate IR during JIT compilation.
     if src_is_buf:
+        # Local -> GM: read the local pointer view and write global pointers.
         tl.store(gm, tl.load(ptr, _semantic=_semantic), _semantic=_semantic)
     else:
+        # GM -> local: read global pointers and write the local pointer view.
         tl.store(ptr, tl.load(gm, _semantic=_semantic), _semantic=_semantic)
 
 
