@@ -206,6 +206,7 @@ class DICPDriver(DriverBase):
             self._cpu_driver = CPUDriver()
 
     def __new__(cls, target=None):
+        # Reuse one driver per backend so different backends cannot share initialized state.
         backend = target.backend if hasattr(target, "backend") else target
         backend = str(backend) if backend else get_current_backend()
         if not hasattr(cls, "instances"):
