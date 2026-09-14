@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--maxfail", type=int, default=0)
     parser.add_argument("--suite", choices=("examples", "ascend"), default="examples")
     parser.add_argument("--select", nargs="*", help="Relative filenames; omitted means all test files")
+    parser.add_argument("--nodeids-file", type=Path,
+                        help="Ascend only: JSON array of exact original pytest nodeids to rerun")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     args.output_dir = args.output_dir.resolve()
@@ -35,6 +37,18 @@ def main():
     source_root = EXAMPLES if args.suite == "examples" else REPO / "test/ascend/passed_tests"
     files = sorted(path for path in source_root.rglob("test_*.py")
                    if path.name != "test_common.py")
+    if args.nodeids_file:
+        if args.suite != "ascend":
+            parser.error("--nodeids-file requires --suite ascend")
+        args.nodeids_file = args.nodeids_file.resolve()
+        nodeids = json.loads(args.nodeids_file.read_text())
+        if not isinstance(nodeids, list) or not nodeids or not all(isinstance(node, str) for node in nodeids):
+            parser.error("--nodeids-file must contain a nonempty JSON array of nodeids")
+        requested_files = {node.split("::", 1)[0] for node in nodeids}
+        missing = requested_files - {str(path.relative_to(REPO)) for path in files}
+        if missing:
+            parser.error(f"Nodeids reference unknown Ascend files: {sorted(missing)}")
+        files = [path for path in files if str(path.relative_to(REPO)) in requested_files]
     if args.select:
         selected = set(args.select)
         files = [path for path in files if str(path.relative_to(source_root)) in selected]
@@ -75,6 +89,8 @@ def main():
                        f"--maxfail={args.maxfail}", f"--junitxml={directory / 'junit.xml'}"]
             if args.suite == "ascend":
                 command += ["-p", "upstream_adapter"]
+                if args.nodeids_file:
+                    command += [f"--wafer-nodeids={args.nodeids_file}"]
             started = time.monotonic()
             print(f"[{index}/{len(files)}] {args.execution}: {relative}", flush=True)
             timeout = False

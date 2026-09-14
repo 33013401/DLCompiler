@@ -6,6 +6,7 @@ checks guards. Vendor-only operators/profilers are deliberately unavailable.
 This is a test transport, not a torch_npu implementation or a CPU kernel path.
 """
 import functools
+import json
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -16,11 +17,35 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / 'third_party/wafer/examples'))
 import _wafer_harness as hardware
 
-pytest_addoption = hardware.pytest_addoption
 pytest_collection_finish = hardware.pytest_collection_finish
 pytest_runtest_setup = hardware.pytest_runtest_setup
 device = hardware.device
 PATCH = None
+
+
+def pytest_addoption(parser):
+    hardware.pytest_addoption(parser)
+    parser.addoption('--wafer-nodeids', type=Path,
+                     help='JSON array of original nodeids selected for regression')
+
+
+def pytest_collection_modifyitems(config, items):
+    selection = config.getoption('--wafer-nodeids')
+    if selection is None:
+        return
+    wanted = set(json.loads(selection.read_text()))
+    collected = {item.nodeid for item in items}
+    collected_files = {node.split('::', 1)[0] for node in collected}
+    missing = {node for node in wanted if node.split('::', 1)[0] in collected_files} - collected
+    if missing:
+        raise pytest.UsageError(f'Regression nodeids no longer collect: {sorted(missing)}')
+    retained = [item for item in items if item.nodeid in wanted]
+    deselected = [item for item in items if item.nodeid not in wanted]
+    items[:] = retained
+    config.hook.pytest_deselected(items=deselected)
+    hardware.record('regression_selection', manifest=str(selection),
+                    selected=[item.nodeid for item in retained],
+                    deselected=[item.nodeid for item in deselected])
 
 
 def pytest_configure(config):
