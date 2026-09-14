@@ -193,14 +193,19 @@ public:
     // offset_0, offset_1,..., stride_0, stride_1,...} type back to the "pointer
     // tuple type".
     //
-    // Because we actually want to get rid of the tuple type, return `inputs[0]`
-    // which corresponds to a "triton pointer type". This approach will work as
-    // intended because the ops that currently take "pointer tuple type" are
-    // `unrealized_conversion_cast` ops which will get removed below during
-    // reconcile-unrealized-conversion-casts.
+    // MLIR requires the materialization result to have exactly resultType.
+    // Keep a typed tuple bridge while SCF rewrites its regions/results. The
+    // pointer projection is folded below, after the offset/stride values have
+    // become explicit loop operands; returning inputs[0] here violates the
+    // conversion contract and loses the bridge before SCF finishes remapping.
     auto materialize = [](OpBuilder &builder, Type resultType,
                           ValueRange inputs,
-                          Location loc) { return inputs[0]; };
+                          Location loc) -> Value {
+      if (inputs.size() == 1 && inputs.front().getType() == resultType)
+        return inputs.front();
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
+    };
     converter.addSourceMaterialization(materialize);
 
     // For each value of "pointer tuple type" that gets decomposed into a
@@ -211,11 +216,24 @@ public:
     // correct offsets, strides, and remove these ops.
     converter.addTargetMaterialization([](OpBuilder &builder,
                                           TypeRange resultTypes,
-                                          ValueRange inputs, Location loc) {
+                                          ValueRange inputs, Location loc)
+                                          -> SmallVector<Value> {
+      if (inputs.size() != 1)
+        return {};
+      auto bridge = inputs.front().getDefiningOp<UnrealizedConversionCastOp>();
+      if (!bridge || bridge.getInputs().empty())
+        return {};
+      // A source materialization can already contain the entire flattened
+      // state. Reuse it instead of reconstructing offsets from only its head.
+      if (llvm::equal(bridge.getInputs().getTypes(), resultTypes))
+        return SmallVector<Value>(bridge.getInputs());
+      if (bridge.getInputs().size() != 1 || resultTypes.empty() ||
+          bridge.getInputs().front().getType() != resultTypes.front())
+        return {};
       auto placeholder = builder.create<tts::GetStructuredStateOp>(
-          loc, inputs.front().getDefiningOp()->getOperand(0));
+          loc, bridge.getInputs().front());
       assert(llvm::equal(placeholder.getResultTypes(), resultTypes));
-      return placeholder.getResults();
+      return SmallVector<Value>(placeholder.getResults());
     });
 
     RewritePatternSet patterns(&getContext());
@@ -226,6 +244,31 @@ public:
     if (failed(applyPartialConversion(getOperation(), target,
                       std::move(patterns)))) {
       return failure();
+    }
+
+    // convertToTupleType introduced tuple -> original-value projections. The
+    // inverse bridge now packs a *sequence*, so generic cast reconciliation
+    // cannot infer that the projection is its first element. Fold only this
+    // typed pair; the remaining state values stay in the converted SCF args.
+    SmallVector<UnrealizedConversionCastOp> projections;
+    moduleOp.walk([&](UnrealizedConversionCastOp castOp) {
+      if (castOp.getInputs().size() != 1 || castOp.getResults().size() != 1 ||
+          !isa<TupleType>(castOp.getInputs().front().getType()) ||
+          isa<TupleType>(castOp.getResult(0).getType()))
+        return;
+      auto pack = castOp.getInputs().front()
+                      .getDefiningOp<UnrealizedConversionCastOp>();
+      if (pack && !pack.getInputs().empty() &&
+          pack.getInputs().front().getType() == castOp.getResult(0).getType())
+        projections.push_back(castOp);
+    });
+    for (auto projection : projections) {
+      auto pack = projection.getInputs().front()
+                      .getDefiningOp<UnrealizedConversionCastOp>();
+      projection.getResult(0).replaceAllUsesWith(pack.getInputs().front());
+      projection.erase();
+      if (pack->use_empty())
+        pack.erase();
     }
 
     // Note:

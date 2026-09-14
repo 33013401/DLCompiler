@@ -8,9 +8,11 @@ import pytest
 from triton.backends.dicp_triton.wafer import _find_wafer_opt
 
 
-@pytest.mark.parametrize("name", ["argmax2d", "flip", "sort"])
+@pytest.mark.parametrize("name", ["interfaces-argmax2d", "interfaces-flip", "interfaces-sort",
+                                  "pointer-state-nested_loops", "pointer-state-modulo",
+                                  "pointer-state-scalar_store", "pointer-state-tensor_index_iterargs"])
 def test_external_interfaces(name, tmp_path):
-    source = Path(__file__).with_name("ir") / f"interfaces-{name}.mlir"
+    source = Path(__file__).with_name("ir") / f"{name}.mlir"
     output = tmp_path / "coreir.mlir"
     compiler = os.getenv("WAFER_TEST_OPT") or str(_find_wafer_opt())
     result = subprocess.run([
