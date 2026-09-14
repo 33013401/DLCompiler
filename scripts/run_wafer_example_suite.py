@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run every Wafer example file in a separate process and retain exact results.
+"""Run Wafer examples or unchanged Ascend files and retain exact results.
 
 Activate wafer-torch310 first. Kernel execution uses the installed wheel; the
 example harness transports CPU reference storages through the real Kuiper API.
@@ -26,16 +26,19 @@ def main():
     parser.add_argument("--execution", choices=("compile", "hardware"), default="compile")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--maxfail", type=int, default=0)
-    parser.add_argument("--select", nargs="*", help="Relative filenames; omitted means all 63 files")
+    parser.add_argument("--suite", choices=("examples", "ascend"), default="examples")
+    parser.add_argument("--select", nargs="*", help="Relative filenames; omitted means all test files")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    files = sorted(EXAMPLES.rglob("test_*.py"))
+    source_root = EXAMPLES if args.suite == "examples" else REPO / "test/ascend/passed_tests"
+    files = sorted(path for path in source_root.rglob("test_*.py")
+                   if path.name != "test_common.py")
     if args.select:
         selected = set(args.select)
-        files = [path for path in files if str(path.relative_to(EXAMPLES)) in selected]
-        missing = selected - {str(path.relative_to(EXAMPLES)) for path in files}
+        files = [path for path in files if str(path.relative_to(source_root)) in selected]
+        missing = selected - {str(path.relative_to(source_root)) for path in files}
         if missing:
             parser.error(f"Unknown example files: {sorted(missing)}")
     # Device assertion diagnostics and NOC demos follow ordinary numerical tests.
@@ -46,10 +49,15 @@ def main():
     environment.update(DICP_BACKEND="wafer", USE_SIM_MODE="0", WAFER_ENABLE_RUNTIME="1",
                        OMP_NUM_THREADS="4", MKL_NUM_THREADS="4", PYTHONUNBUFFERED="1")
     environment.setdefault("TRITON_CACHE_DIR", str(args.output_dir.parent / "cache"))
+    if args.suite == "ascend":
+        # Opt-in pytest plugin maps only the host tensor/reference entry points.
+        # Original kernels, parameter sets and assertions remain unmodified.
+        environment["PYTHONPATH"] = os.pathsep.join(filter(None, (
+            str(REPO / "test/wafer"), environment.get("PYTHONPATH"))))
     blocked = None
     results = []
     for index, source in enumerate(files, 1):
-        relative = str(source.relative_to(EXAMPLES))
+        relative = str(source.relative_to(source_root))
         directory = args.output_dir / relative.removesuffix(".py")
         directory.mkdir(parents=True, exist_ok=True)
         result_path = directory / "result.json"
@@ -65,6 +73,8 @@ def main():
             command = [sys.executable, "-m", "pytest", "-q", "--tb=short", "-r", "a",
                        str(source), f"--wafer-execution={args.execution}",
                        f"--maxfail={args.maxfail}", f"--junitxml={directory / 'junit.xml'}"]
+            if args.suite == "ascend":
+                command += ["-p", "upstream_adapter"]
             started = time.monotonic()
             print(f"[{index}/{len(files)}] {args.execution}: {relative}", flush=True)
             timeout = False
@@ -96,6 +106,7 @@ def main():
                 "file": relative, "execution": args.execution, "status": status,
                 "returncode": code, "seconds": round(time.monotonic() - started, 3),
                 "collected": len(nodes), "outcomes": dict(counts), "completed_launches": launches,
+                "collection_errors": sum(event["event"] == "collection_error" for event in events),
                 "compiled_kernels": sum(event["event"] == "compiled" for event in events),
                 "not_completed": sorted(set(nodes) - {event["nodeid"] for event in tests}),
                 "command": command, "log": str(directory / "pytest.log"),
@@ -105,10 +116,10 @@ def main():
             print(f"  {status}: {dict(counts)}, launches={launches}, {result['seconds']}s", flush=True)
         result_path.write_text(json.dumps(result, indent=2) + "\n")
         results.append(result)
-        summary = {"execution": args.execution, "files": results, "blocked_reason": blocked}
+        summary = {"suite": args.suite, "execution": args.execution, "files": results, "blocked_reason": blocked}
         (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     # Include the trailing resumed files even when no new process was needed.
-    summary = {"execution": args.execution, "files": results, "blocked_reason": blocked}
+    summary = {"suite": args.suite, "execution": args.execution, "files": results, "blocked_reason": blocked}
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"Saved {args.output_dir / 'summary.json'}", flush=True)
     return int(any(result["status"] not in ("passed", "compiled") for result in results))
