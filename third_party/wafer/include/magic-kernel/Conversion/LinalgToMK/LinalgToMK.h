@@ -31,15 +31,15 @@ void populateLinalgToMKPreProcessPatterns(RewritePatternSet &patterns);
 
 // Type conversion: trans integer type to float type, etc.
 void populateLinalgToMKTypeConversionPatterns(RewritePatternSet &patterns,
-                                              bool precisionPriority = false);
+                                              int precisionMode = 0);
 
 // Pattern rewrite to target dependent operation
 void populateLinalgToMKCanonicalizationPatterns(RewritePatternSet &patterns,
-                                                bool precisionPriority = false);
+                                                int precisionMode = 0);
 
 // Reshape input shape to destination shape
 void populateLinalgToMKShapeCanonicalizationPatterns(
-    RewritePatternSet &patterns, bool precisionPriority = false);
+    RewritePatternSet &patterns, int precisionMode = 0);
 
 // Convertion patterns
 void populateLinalgToMKConversionPatterns(RewritePatternSet &patterns);

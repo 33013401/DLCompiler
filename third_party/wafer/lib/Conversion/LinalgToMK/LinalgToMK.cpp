@@ -26,18 +26,34 @@ using namespace mk;
 
 namespace {
 
-bool isConstantTensor(Value &v, double targetValue, bool isApprox) {
-  auto fillOp = dyn_cast<linalg::FillOp>(v.getDefiningOp());
-  if (!fillOp) {
-    return false;
-  }
+static int normalizePrecisionMode(int precisionMode) {
+  if (precisionMode <= 0)
+    return 0;
+  if (precisionMode == 1)
+    return 1;
+  return 2;
+}
 
-  auto fillValue = fillOp.getInputs()[0];
-  auto constOp = fillValue.getDefiningOp<arith::ConstantOp>();
+static bool preservesIntegerPrecision(Type elementType, int precisionMode) {
+  if (!isa<IntegerType>(elementType))
+    return false;
+
+  int bitWidth = elementType.getIntOrFloatBitWidth();
+  switch (normalizePrecisionMode(precisionMode)) {
+  case 0:
+    return false;
+  case 1:
+    return bitWidth >= 64;
+  default:
+    return bitWidth >= 32;
+  }
+}
+
+bool isConstantValue(Value &v, double targetValue, bool isApprox = false) {
+  auto constOp = v.getDefiningOp<arith::ConstantOp>();
   if (!constOp) {
     return false;
   }
-
   if (auto val = dyn_cast<FloatAttr>(constOp.getValue())) {
     return isApprox ? (std::abs(val.getValueAsDouble() - targetValue) < 1e-5)
                     : (val.getValueAsDouble() == targetValue);
@@ -45,8 +61,21 @@ bool isConstantTensor(Value &v, double targetValue, bool isApprox) {
   if (auto val = dyn_cast<IntegerAttr>(constOp.getValue())) {
     return val.getValue() == static_cast<int64_t>(targetValue);
   }
-
   return false;
+}
+
+bool isConstantTensor(Value &v, double targetValue, bool isApprox) {
+  auto *defOp = v.getDefiningOp();
+  if (!defOp) {
+    return false;
+  }
+  auto fillOp = dyn_cast<linalg::FillOp>(defOp);
+  if (!fillOp) {
+    return false;
+  }
+
+  auto fillValue = fillOp.getInputs()[0];
+  return isConstantValue(fillValue, targetValue, isApprox);
 }
 
 // Check if the given value is a tensor filled with 0.
@@ -1354,32 +1383,91 @@ struct DivFloatOpRewrite : public OpRewritePattern<linalg::GenericOp> {
 
     Location loc = op->getLoc();
 
+    // Read rnd_mode attribute from the original DivFOp
+    auto regionOps = getRegionOps<linalg::GenericOp>(op);
+    auto divOp = cast<arith::DivFOp>(regionOps[0]);
+    auto rndModeAttr = divOp->getAttr("rnd_mode");
+
     auto inputTensorType =
         dyn_cast<RankedTensorType>(op.getInputs()[0].getType());
-    auto rank = inputTensorType.getRank();
     auto outputTensorType =
         dyn_cast<RankedTensorType>(op.getOutputs()[0].getType());
-    auto empty = rewriter.create<tensor::EmptyOp>(
-        loc, inputTensorType.getShape(), inputTensorType.getElementType());
 
-    Value recip = rewriter
-                      .create<linalg::ReciprocalOp>(
-                          loc, inputTensorType, ValueRange{op.getInputs()[1]},
-                          ValueRange{empty})
-                      ->getResult(0);
+    // Regular (tensor) path: out = lhs / rhs  ->  recip(rhs) * lhs.
+    if (inputTensorType && outputTensorType) {
+      auto rank = inputTensorType.getRank();
+      auto empty = rewriter.create<tensor::EmptyOp>(
+          loc, inputTensorType.getShape(), inputTensorType.getElementType());
 
-    SmallVector<AffineMap, 3> binaryIndexingMaps(
-        3, rewriter.getMultiDimIdentityMap(rank));
-    SmallVector<utils::IteratorType, 6> iteratorTypes(
-        rank, utils::IteratorType::parallel);
-    rewriter.replaceOpWithNewOp<linalg::GenericOp>(
-        op, outputTensorType, ValueRange{op.getInputs()[0], recip},
-        ValueRange{empty}, binaryIndexingMaps, iteratorTypes,
+      Value recip = rewriter
+                        .create<linalg::ReciprocalOp>(
+                            loc, inputTensorType, ValueRange{op.getInputs()[1]},
+                            ValueRange{empty})
+                        ->getResult(0);
+
+      SmallVector<AffineMap, 3> binaryIndexingMaps(
+          3, rewriter.getMultiDimIdentityMap(rank));
+      SmallVector<utils::IteratorType, 6> iteratorTypes(
+          rank, utils::IteratorType::parallel);
+      rewriter.replaceOpWithNewOp<linalg::GenericOp>(
+          op, outputTensorType, ValueRange{op.getInputs()[0], recip},
+          ValueRange{empty}, binaryIndexingMaps, iteratorTypes,
+          [&](OpBuilder &b, Location loc, ValueRange args) {
+            auto mulOp = b.create<arith::MulFOp>(loc, args[0], args[1]);
+            if (rndModeAttr)
+              mulOp->setAttr("rnd_mode", rndModeAttr);
+            b.create<linalg::YieldOp>(loc, mulOp.getResult());
+          });
+
+      return success();
+    }
+
+    // DSA memref path (mode 0/1): out = lhs / rhs
+    //   -> scratch = recip(rhs); out = mul(lhs, scratch).
+    // A scratch buffer keeps the result correct even when out aliases an
+    // input. It is allocated here (this pass runs before
+    // spmd-allocate-shared-memory) so it receives an allocation.offset attr.
+    auto lhsTy = dyn_cast<MemRefType>(op.getInputs()[0].getType());
+    auto rhsTy = dyn_cast<MemRefType>(op.getInputs()[1].getType());
+    auto outTy = dyn_cast<MemRefType>(op.getOutputs()[0].getType());
+    if (!lhsTy || !rhsTy || !outTy)
+      return failure();
+
+    if (lhsTy.getShape() != rhsTy.getShape() ||
+        lhsTy.getShape() != outTy.getShape())
+      return op->emitRemark("dsa binary op shape mismatch between lhs/rhs/out");
+    if (lhsTy.getElementType() != rhsTy.getElementType() ||
+        lhsTy.getElementType() != outTy.getElementType())
+      return op->emitRemark(
+          "dsa binary op element type mismatch between lhs/rhs/out");
+
+    auto scratch = rewriter.create<memref::AllocOp>(loc, outTy);
+    auto scratchMemref = scratch.getResult();
+
+    rewriter.create<linalg::ReciprocalOp>(loc, TypeRange{},
+                                          ValueRange{op.getInputs()[1]},
+                                          ValueRange{scratchMemref});
+
+    auto rank = static_cast<int64_t>(lhsTy.getShape().size());
+    auto identityMap = rewriter.getMultiDimIdentityMap(rank);
+    SmallVector<AffineMap> indexingMaps = {identityMap, identityMap,
+                                           identityMap};
+    SmallVector<mlir::utils::IteratorType> iteratorTypes(
+        rank, mlir::utils::IteratorType::parallel);
+
+    rewriter.create<linalg::GenericOp>(
+        loc,
+        /*resultTensorTypes=*/TypeRange{},
+        ValueRange{op.getInputs()[0], scratchMemref},
+        ValueRange{op.getOutputs()[0]}, indexingMaps, iteratorTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
-          Value result = b.create<arith::MulFOp>(loc, args[0], args[1]);
-          b.create<linalg::YieldOp>(loc, result);
+          auto mulOp = b.create<arith::MulFOp>(loc, args[0], args[1]);
+          if (rndModeAttr)
+            mulOp->setAttr("rnd_mode", rndModeAttr);
+          b.create<linalg::YieldOp>(loc, mulOp.getResult());
         });
 
+    rewriter.eraseOp(op);
     return success();
   }
 
@@ -1404,8 +1492,14 @@ struct DivIntOpRewrite : public OpRewritePattern<linalg::GenericOp> {
 
     // FIXME: Canonicalize non-precision mode divint in linalg-to-mk, others
     // default to scf.for
+    // DSA memref-operand generics have no results and non-tensor operands;
+    // only handle tensor-form integer division here.
+    if (op.getNumResults() != 1)
+      return failure();
     auto resultTensorType =
         dyn_cast<RankedTensorType>(op.getResult(0).getType());
+    if (!resultTensorType)
+      return failure();
     SmallVector<Value> inputs(op.getInputs().begin(), op.getInputs().end());
 
     SmallVector<Value> outputs = {rewriter.create<tensor::EmptyOp>(
@@ -1782,6 +1876,11 @@ struct PowFOpRewrite : public OpRewritePattern<linalg::GenericOp> {
     if (regionOps.size() != 1 || !isa<math::PowFOp>(regionOps.front()))
       return failure();
 
+    // Skip DSA memref-operand generics (no results / non-tensor operands).
+    if (op->getResultTypes().empty() ||
+        !isa<RankedTensorType>(op->getResultTypes()[0]))
+      return failure();
+
     auto base = op.getInputs()[0];
     auto exponent = op.getInputs()[1];
     auto loc = op->getLoc();
@@ -1847,6 +1946,8 @@ struct MinMaxOpRewrite : public OpRewritePattern<linalg::GenericOp> {
     auto rhs = op.getInputs()[1];
 
     auto inputType = dyn_cast<RankedTensorType>(lhs.getType());
+    if (!inputType)
+      return failure();
     auto rank = inputType.getRank();
 
     auto inputTypeEmpty = rewriter.create<tensor::EmptyOp>(
@@ -1953,7 +2054,8 @@ static LogicalResult convertSIOpToF32Op(
     ValueRange outputs,
     std::function<ValueRange(Operation *srcOp, PatternRewriter &rewrite,
                              ValueRange inputs, ValueRange outputs)>
-        fpOpBuildFn) {
+        fpOpBuildFn,
+    bool convertOutputs = false) {
   Location loc = srcOp->getLoc();
   SmallVector<Value> fpInputs, fpOutputs, intResults;
   // Convert integer input
@@ -1971,7 +2073,15 @@ static LogicalResult convertSIOpToF32Op(
     Value fpOutput = rewriter.create<tensor::EmptyOp>(loc, outputTy.getShape(),
                                                       rewriter.getF32Type());
 
-    fpOutputs.push_back(fpOutput);
+    if (convertOutputs) {
+      // Reduce path: convert the init value from int to fp32 instead of
+      // discarding it.  Elementwise callers (default convertOutputs=false)
+      // still pass EmptyOp since their outputs are pure output buffers.
+      fpOutputs.push_back(createElemwiseNaryOp<arith::SIToFPOp>(
+          rewriter, loc, output, fpOutput));
+    } else {
+      fpOutputs.push_back(fpOutput);
+    }
   }
 
   auto fpResults = fpOpBuildFn(srcOp, rewriter, fpInputs, fpOutputs);
@@ -1985,6 +2095,169 @@ static LogicalResult convertSIOpToF32Op(
   }
   rewriter.replaceOp(srcOp, intResults);
   return success();
+}
+
+// Unsigned counterpart of convertSIOpToF32Op: uses UIToFP/FPToUI so that
+// unsigned integers round-trip through f32 without sign-extension artifacts.
+static LogicalResult convertUIOpToF32Op(
+    Operation *srcOp, PatternRewriter &rewriter, ValueRange inputs,
+    ValueRange outputs,
+    std::function<ValueRange(Operation *srcOp, PatternRewriter &rewrite,
+                             ValueRange inputs, ValueRange outputs)>
+        fpOpBuildFn) {
+  Location loc = srcOp->getLoc();
+  SmallVector<Value> fpInputs, fpOutputs, intResults;
+  for (auto input : inputs) {
+    auto inputTy = cast<RankedTensorType>(input.getType());
+    Value fpInput = rewriter.create<tensor::EmptyOp>(loc, inputTy.getShape(),
+                                                     rewriter.getF32Type());
+    fpInputs.push_back(
+        createElemwiseNaryOp<arith::UIToFPOp>(rewriter, loc, input, fpInput));
+  }
+
+  for (auto output : outputs) {
+    auto outputTy = cast<RankedTensorType>(output.getType());
+    Value fpOutput = rewriter.create<tensor::EmptyOp>(loc, outputTy.getShape(),
+                                                      rewriter.getF32Type());
+    fpOutputs.push_back(fpOutput);
+  }
+
+  auto fpResults = fpOpBuildFn(srcOp, rewriter, fpInputs, fpOutputs);
+  auto resultTy = cast<RankedTensorType>(srcOp->getResultTypes()[0]);
+  for (auto fpResult : fpResults) {
+    Value intResult = rewriter.create<tensor::EmptyOp>(
+        loc, resultTy.getShape(), resultTy.getElementType());
+    intResults.push_back(createElemwiseNaryOp<arith::FPToUIOp>(
+        rewriter, loc, fpResult, intResult));
+  }
+  rewriter.replaceOp(srcOp, intResults);
+  return success();
+}
+
+// Build a linalg.generic wrapping arith.cmpf with the given predicate.
+// Result is an i1 tensor with the same shape as the inputs.
+static Value buildLinalgCmpF(OpBuilder &rewriter, Location loc,
+                             arith::CmpFPredicate pred, Value lhs, Value rhs) {
+  auto inputTy = cast<RankedTensorType>(lhs.getType());
+  auto i1Ty = RankedTensorType::get(inputTy.getShape(), rewriter.getI1Type());
+  auto rank = inputTy.getRank();
+  auto idMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+  SmallVector<AffineMap> maps(3, idMap);
+  SmallVector<utils::IteratorType> iters(rank, utils::IteratorType::parallel);
+  auto out = rewriter.create<tensor::EmptyOp>(loc, i1Ty.getShape(),
+                                              i1Ty.getElementType());
+  return rewriter
+      .create<linalg::GenericOp>(
+          loc, i1Ty, ValueRange{lhs, rhs}, ValueRange{out}, maps, iters,
+          [&](OpBuilder &b, Location l, ValueRange args) {
+            Value c = b.create<arith::CmpFOp>(l, pred, args[0], args[1]);
+            b.create<linalg::YieldOp>(l, c);
+          })
+      .getResult(0);
+}
+
+// Build a linalg.generic wrapping arith.select (elementwise, 3 inputs).
+static Value buildLinalgSelect(OpBuilder &rewriter, Location loc, Value cond,
+                               Value trueV, Value falseV) {
+  auto resTy = cast<RankedTensorType>(trueV.getType());
+  auto rank = resTy.getRank();
+  auto idMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+  SmallVector<AffineMap> maps(4, idMap);
+  SmallVector<utils::IteratorType> iters(rank, utils::IteratorType::parallel);
+  auto out = rewriter.create<tensor::EmptyOp>(loc, resTy.getShape(),
+                                              resTy.getElementType());
+  return rewriter
+      .create<linalg::GenericOp>(
+          loc, resTy, ValueRange{cond, trueV, falseV}, ValueRange{out}, maps,
+          iters,
+          [&](OpBuilder &b, Location l, ValueRange args) {
+            Value s = b.create<arith::SelectOp>(l, args[0], args[1], args[2]);
+            b.create<linalg::YieldOp>(l, s);
+          })
+      .getResult(0);
+}
+
+// Build the corrective integer-division quotient in the positive f32 domain.
+//   q      = trunc(a / b)           ; may be (true_q - 1) when RECIP rounds low
+//   r      = a - q*b
+//   q_out  = q + (r >= b ? 1 : 0)
+// `aAbs`/`bAbs` must be non-negative f32 tensors. All intermediate values
+// must stay < 2^24 (the FP32 exact-representation bound) for the remainder
+// check to be precise. Callers must therefore restrict this path to operands
+// known to fit (gated by precision mode at the use site).
+// Returns the corrected (still non-negative) quotient as an f32 tensor.
+static Value buildCorrectivePosDiv(OpBuilder &rewriter, Location loc,
+                                   Value aAbs, Value bAbs) {
+  auto f32Ty = cast<RankedTensorType>(aAbs.getType());
+  // Use explicit recip+mul instead of divf so the integer path is clearly
+  // separated from user float divisions (which go through NRM_DIV).
+  Value recipOut = rewriter.create<tensor::EmptyOp>(loc, f32Ty.getShape(),
+                                                    f32Ty.getElementType());
+  Value recip = rewriter
+                    .create<linalg::ReciprocalOp>(loc, f32Ty, ValueRange{bAbs},
+                                                  ValueRange{recipOut})
+                    ->getResult(0);
+  Value qf =
+      buildLinalgElementwise<arith::MulFOp>(rewriter, loc, {aAbs, recip});
+  Value qTrunc = buildLinalgElementwise<math::TruncOp>(rewriter, loc, {qf});
+  Value chk =
+      buildLinalgElementwise<arith::MulFOp>(rewriter, loc, {qTrunc, bAbs});
+  Value r = buildLinalgElementwise<arith::SubFOp>(rewriter, loc, {aAbs, chk});
+  Value needsCorr =
+      buildLinalgCmpF(rewriter, loc, arith::CmpFPredicate::OGE, r, bAbs);
+  // i1 -> f32 (1.0/0.0). Use createElemwiseNaryOp (no Elementwise-trait
+  // requirement) since arith cast ops aren't guaranteed to satisfy the
+  // buildLinalgElementwise static_assert.
+  Value corrEmpty = rewriter.create<tensor::EmptyOp>(loc, f32Ty.getShape(),
+                                                     f32Ty.getElementType());
+  Value corr = createElemwiseNaryOp<arith::UIToFPOp>(rewriter, loc, needsCorr,
+                                                     corrEmpty);
+  return buildLinalgElementwise<arith::AddFOp>(rewriter, loc, {qTrunc, corr});
+}
+
+// Signed corrective integer division, using explicit recip+mul for the
+// initial quotient estimate (not divf, which would conflate with the user
+// float-division -> NRM_DIV path). trunc-toward-zero semantics, matching
+// arith.divsi / C. Same FP32 exact-representation bound as above.
+//   qf   = a * recip(b)        ; |qf| may be (|true_q| - 1)
+//   q    = trunc(qf)
+//   r    = a - q*b
+//   q   += (|r| >= |b|) ? sign(qf) : 0
+static Value buildCorrectiveDivSigned(OpBuilder &rewriter, Location loc,
+                                      Value aF, Value bF) {
+  auto f32Ty = cast<RankedTensorType>(aF.getType());
+  // Use explicit recip+mul instead of divf to keep the integer path
+  // independent from the user-float-divf -> NRM_DIV path.
+  Value recipOut = rewriter.create<tensor::EmptyOp>(loc, f32Ty.getShape(),
+                                                    f32Ty.getElementType());
+  Value recip = rewriter
+                    .create<linalg::ReciprocalOp>(loc, f32Ty, ValueRange{bF},
+                                                  ValueRange{recipOut})
+                    ->getResult(0);
+  Value qf = buildLinalgElementwise<arith::MulFOp>(rewriter, loc, {aF, recip});
+  Value qTrunc = buildLinalgElementwise<math::TruncOp>(rewriter, loc, {qf});
+  Value chk =
+      buildLinalgElementwise<arith::MulFOp>(rewriter, loc, {qTrunc, bF});
+  Value r = buildLinalgElementwise<arith::SubFOp>(rewriter, loc, {aF, chk});
+  Value rAbs = buildLinalgElementwise<math::AbsFOp>(rewriter, loc, {r});
+  Value bAbs = buildLinalgElementwise<math::AbsFOp>(rewriter, loc, {bF});
+  Value needsCorr =
+      buildLinalgCmpF(rewriter, loc, arith::CmpFPredicate::OGE, rAbs, bAbs);
+
+  // Splat tensor constant via DenseElementsAttr (avoids a separate FillOp).
+  // The rest of the file uses scalar Constant + FillOp; DenseConstantToFill
+  // canonicalizes both forms to the same IR, so either is fine.
+  Value zero = rewriter.create<arith::ConstantOp>(
+      loc, DenseElementsAttr::get(f32Ty, rewriter.getF32FloatAttr(0.0f)));
+  Value qfNeg =
+      buildLinalgCmpF(rewriter, loc, arith::CmpFPredicate::OLT, qf, zero);
+  Value corrEmpty = rewriter.create<tensor::EmptyOp>(loc, f32Ty.getShape(),
+                                                     f32Ty.getElementType());
+  Value mag = createElemwiseNaryOp<arith::UIToFPOp>(rewriter, loc, needsCorr,
+                                                    corrEmpty);
+  Value magNeg = buildLinalgElementwise<arith::NegFOp>(rewriter, loc, {mag});
+  Value dir = buildLinalgSelect(rewriter, loc, qfNeg, magNeg, mag);
+  return buildLinalgElementwise<arith::AddFOp>(rewriter, loc, {qTrunc, dir});
 }
 
 struct CannonicalizeRedudantTypeConversion
@@ -2115,7 +2388,6 @@ struct CastElementwiseOpIOToFloatPattern
     registerSIOpMapFPOp<arith::MaxSIOp, arith::MaximumFOp>();
     registerSIOpMapFPOp<arith::MinSIOp, arith::MinimumFOp>();
     registerSIOpMapFPOp<math::AbsIOp, math::AbsFOp>();
-    registerSIOpMapFPOp<arith::RemSIOp, arith::RemFOp>();
   }
 
   template <typename SIOp, typename FPOp> void registerSIOpMapFPOp() {
@@ -2153,10 +2425,15 @@ struct CastElementwiseOpIOToFloatPattern
     // NOTE: Output not always exist
     auto outputs = op.getOutputs();
 
+    // Skip DSA memref-operand generics: this pattern is tensor-only and uses
+    // hard casts (would assert on memref operand types).
+    if (outputs.empty() || !isa<RankedTensorType>(outputs[0].getType()))
+      return failure();
+
     if (SIToFPOpBuildFnMap.contains(OpName) &&
-        (!precisionPriority || cast<RankedTensorType>(outputs[0].getType())
-                                       .getElementType()
-                                       .getIntOrFloatBitWidth() < 32)) {
+        !preservesIntegerPrecision(
+            cast<RankedTensorType>(outputs[0].getType()).getElementType(),
+            precisionMode)) {
       assert(outputs.size() == 1 &&
              "Elementwise conversion only support single output");
       assert(cast<RankedTensorType>(outputs[0].getType())
@@ -2174,8 +2451,7 @@ struct CastElementwiseOpIOToFloatPattern
       if (inputType.getNumElements() < 8)
         return failure();
 
-      if (precisionPriority &&
-          inputType.getElementType().getIntOrFloatBitWidth() >= 32)
+      if (preservesIntegerPrecision(inputType.getElementType(), precisionMode))
         return failure();
 
       auto outputType =
@@ -2226,48 +2502,118 @@ struct CastElementwiseOpIOToFloatPattern
     }
 
     if (auto divsiOp = dyn_cast<arith::DivSIOp>(elemWiseOp)) {
-      if (precisionPriority)
+      // Route integer division/remainder by precision mode:
+      //   mode 0: always cast to f32 and lower on TX81 (this path), any width.
+      //   mode 1: widths < 64 use f32/TX81; i64 falls back to exact RISC-V.
+      //   mode 2: all widths fall back to exact RISC-V integer division.
+      // The `>= 2` term is what forces i8/i16 to RISC-V at mode 2 (which
+      // preservesIntegerPrecision alone would miss, as it gates on >= 32).
+      if (normalizePrecisionMode(precisionMode) >= 2 ||
+          preservesIntegerPrecision(
+              cast<RankedTensorType>(outputs[0].getType()).getElementType(),
+              precisionMode))
         return failure();
+      // Integer division via f32 loses a unit when the hardware reciprocal
+      // rounds low (e.g. 7//7 -> 0). Detect it with a remainder check and
+      // nudge the quotient by sign(q_f) (trunc-toward-zero, like arith.divsi).
       return convertSIOpToF32Op(
           op, rewriter, op.getInputs(), op.getOutputs(),
           [&](Operation *srcOp, PatternRewriter &rewriter, ValueRange inputs,
-              ValueRange outputs) {
-            auto genericOp = cast<linalg::GenericOp>(srcOp);
-            auto divf =
-                rewriter
-                    .create<linalg::GenericOp>(
-                        srcOp->getLoc(), outputs.front().getType(), inputs,
-                        outputs, genericOp.getIndexingMapsArray(),
-                        genericOp.getIteratorTypesArray(),
-                        [&](OpBuilder &b, Location loc, ValueRange args) {
-                          Value val = b.create<arith::DivFOp>(
-                              loc, args.back().getType(), args[0], args[1]);
-                          b.create<linalg::YieldOp>(loc, val);
-                        })
-                    ->getResult(0);
-            SmallVector<AffineMap> indexingMaps(
-                2, genericOp.getIndexingMapsArray().front());
-            return rewriter
-                .create<linalg::GenericOp>(
-                    srcOp->getLoc(), outputs.front().getType(),
-                    ValueRange{divf}, ValueRange{divf}, indexingMaps,
-                    genericOp.getIteratorTypesArray(),
-                    [&](OpBuilder &b, Location loc, ValueRange args) {
-                      Value val = b.create<math::TruncOp>(
-                          loc, args.back().getType(), args.drop_back());
-                      b.create<linalg::YieldOp>(loc, val);
-                    })
-                ->getResults();
+              ValueRange outputs) -> ValueRange {
+            Value qOut = buildCorrectiveDivSigned(rewriter, srcOp->getLoc(),
+                                                  inputs[0], inputs[1]);
+            return qOut.getDefiningOp()->getResults();
+          });
+    }
+
+    if (auto divuiOp = dyn_cast<arith::DivUIOp>(elemWiseOp)) {
+      // Route integer division/remainder by precision mode:
+      //   mode 0: always cast to f32 and lower on TX81 (this path), any width.
+      //   mode 1: widths < 64 use f32/TX81; i64 falls back to exact RISC-V.
+      //   mode 2: all widths fall back to exact RISC-V integer division.
+      // The `>= 2` term is what forces i8/i16 to RISC-V at mode 2 (which
+      // preservesIntegerPrecision alone would miss, as it gates on >= 32).
+      if (normalizePrecisionMode(precisionMode) >= 2 ||
+          preservesIntegerPrecision(
+              cast<RankedTensorType>(outputs[0].getType()).getElementType(),
+              precisionMode))
+        return failure();
+      // Unsigned: inputs are non-negative, so the positive-domain corrective
+      // division is sufficient (no sign handling needed).
+      return convertUIOpToF32Op(
+          op, rewriter, op.getInputs(), op.getOutputs(),
+          [&](Operation *srcOp, PatternRewriter &rewriter, ValueRange inputs,
+              ValueRange outputs) -> ValueRange {
+            Location loc = srcOp->getLoc();
+            Value qOut =
+                buildCorrectivePosDiv(rewriter, loc, inputs[0], inputs[1]);
+            return qOut.getDefiningOp()->getResults();
+          });
+    }
+
+    if (auto remsiOp = dyn_cast<arith::RemSIOp>(elemWiseOp)) {
+      // Route integer division/remainder by precision mode:
+      //   mode 0: always cast to f32 and lower on TX81 (this path), any width.
+      //   mode 1: widths < 64 use f32/TX81; i64 falls back to exact RISC-V.
+      //   mode 2: all widths fall back to exact RISC-V integer division.
+      // The `>= 2` term is what forces i8/i16 to RISC-V at mode 2 (which
+      // preservesIntegerPrecision alone would miss, as it gates on >= 32).
+      if (normalizePrecisionMode(precisionMode) >= 2 ||
+          preservesIntegerPrecision(
+              cast<RankedTensorType>(outputs[0].getType()).getElementType(),
+              precisionMode))
+        return failure();
+      // r = a - q*b with q from the corrective signed division.
+      // q*b and the subtraction are exact in FP32 (all values < 2^24).
+      return convertSIOpToF32Op(
+          op, rewriter, op.getInputs(), op.getOutputs(),
+          [&](Operation *srcOp, PatternRewriter &rewriter, ValueRange inputs,
+              ValueRange outputs) -> ValueRange {
+            Location loc = srcOp->getLoc();
+            Value q =
+                buildCorrectiveDivSigned(rewriter, loc, inputs[0], inputs[1]);
+            Value qb = buildLinalgElementwise<arith::MulFOp>(rewriter, loc,
+                                                             {q, inputs[1]});
+            Value r = buildLinalgElementwise<arith::SubFOp>(rewriter, loc,
+                                                            {inputs[0], qb});
+            return r.getDefiningOp()->getResults();
+          });
+    }
+
+    if (auto remuiOp = dyn_cast<arith::RemUIOp>(elemWiseOp)) {
+      // Route integer division/remainder by precision mode:
+      //   mode 0: always cast to f32 and lower on TX81 (this path), any width.
+      //   mode 1: widths < 64 use f32/TX81; i64 falls back to exact RISC-V.
+      //   mode 2: all widths fall back to exact RISC-V integer division.
+      // The `>= 2` term is what forces i8/i16 to RISC-V at mode 2 (which
+      // preservesIntegerPrecision alone would miss, as it gates on >= 32).
+      if (normalizePrecisionMode(precisionMode) >= 2 ||
+          preservesIntegerPrecision(
+              cast<RankedTensorType>(outputs[0].getType()).getElementType(),
+              precisionMode))
+        return failure();
+      // r = a - q*b with q from the corrective unsigned division.
+      return convertUIOpToF32Op(
+          op, rewriter, op.getInputs(), op.getOutputs(),
+          [&](Operation *srcOp, PatternRewriter &rewriter, ValueRange inputs,
+              ValueRange outputs) -> ValueRange {
+            Location loc = srcOp->getLoc();
+            Value q =
+                buildCorrectivePosDiv(rewriter, loc, inputs[0], inputs[1]);
+            Value qb = buildLinalgElementwise<arith::MulFOp>(rewriter, loc,
+                                                             {q, inputs[1]});
+            Value r = buildLinalgElementwise<arith::SubFOp>(rewriter, loc,
+                                                            {inputs[0], qb});
+            return r.getDefiningOp()->getResults();
           });
     }
 
     return failure();
   }
 
-  CastElementwiseOpIOToFloatPattern(MLIRContext *context,
-                                    bool precisionPriority)
+  CastElementwiseOpIOToFloatPattern(MLIRContext *context, int precisionMode)
       : OpRewritePattern<linalg::GenericOp>(context),
-        precisionPriority(precisionPriority) {}
+        precisionMode(precisionMode) {}
 
 private:
   // Map from SIOp to FPOp conversion functions
@@ -2276,7 +2622,7 @@ private:
                                           ValueRange, ValueRange)>>
       SIToFPOpBuildFnMap;
 
-  bool precisionPriority = false;
+  int precisionMode = 0;
 };
 
 struct CastReduceOpIOToFloatPattern
@@ -2320,10 +2666,10 @@ struct CastReduceOpIOToFloatPattern
     OperationName OpName = reduceOp->getName();
 
     if (SIToFPOpBuildFnMap.contains(OpName) &&
-        (!precisionPriority ||
-         cast<RankedTensorType>(op.getInits().front().getType())
-                 .getElementType()
-                 .getIntOrFloatBitWidth() < 32)) {
+        !preservesIntegerPrecision(
+            cast<RankedTensorType>(op.getInits().front().getType())
+                .getElementType(),
+            precisionMode)) {
 
       assert(op.getInits().size() == 1 &&
              "Reduce conversion only support single output");
@@ -2338,15 +2684,16 @@ struct CastReduceOpIOToFloatPattern
             op, "Reduction op has invalid init value");
 
       return convertSIOpToF32Op(op, rewriter, op.getInputs(), op.getInits(),
-                                SIToFPOpBuildFnMap.at(OpName));
+                                SIToFPOpBuildFnMap.at(OpName),
+                                /*convertOutputs=*/true);
     }
 
     return failure();
   }
 
-  CastReduceOpIOToFloatPattern(MLIRContext *context, bool precisionPriority)
+  CastReduceOpIOToFloatPattern(MLIRContext *context, int precisionMode)
       : OpRewritePattern<linalg::ReduceOp>(context),
-        precisionPriority(precisionPriority) {}
+        precisionMode(precisionMode) {}
 
 private:
   // Map from SIOp to FPOp conversion functions
@@ -2355,7 +2702,7 @@ private:
                                           ValueRange, ValueRange)>>
       SIToFPOpBuildFnMap;
 
-  bool precisionPriority = false;
+  int precisionMode = 0;
 };
 
 template <typename MKOpT>
@@ -2531,12 +2878,12 @@ struct BoolOpShapeCanonicalizePattern : OpRewritePattern<linalg::GenericOp> {
     return success();
   }
 
-  BoolOpShapeCanonicalizePattern(MLIRContext *context, bool precisionPriority)
+  BoolOpShapeCanonicalizePattern(MLIRContext *context, int precisionMode)
       : OpRewritePattern<linalg::GenericOp>(context),
-        precisionPriority(precisionPriority) {}
+        precisionMode(precisionMode) {}
 
 private:
-  bool precisionPriority = false;
+  int precisionMode = 0;
 };
 
 struct SigmoidFusionPattern : OpRewritePattern<linalg::GenericOp> {
@@ -3780,9 +4127,9 @@ void mlir::triton::populateLinalgToMKPreProcessPatterns(
 }
 
 void mlir::triton::populateLinalgToMKTypeConversionPatterns(
-    RewritePatternSet &patterns, bool precisionPriority) {
+    RewritePatternSet &patterns, int precisionMode) {
   patterns.add<CastElementwiseOpIOToFloatPattern, CastReduceOpIOToFloatPattern>(
-      patterns.getContext(), precisionPriority /* precisionPriority */);
+      patterns.getContext(), precisionMode /* precisionMode */);
   patterns.add<CannonicalizeRedudantTypeConversion>(patterns.getContext());
   patterns
       .add<I1ExtSIOpRewrite, I1ExtUIOpRewrite, I1ToF32Rewrite, FP32ToI1Rewrite>(
@@ -3794,7 +4141,7 @@ void mlir::triton::populateLinalgToMKTypeConversionPatterns(
 }
 
 void mlir::triton::populateLinalgToMKCanonicalizationPatterns(
-    RewritePatternSet &patterns, bool precisionPriority) {
+    RewritePatternSet &patterns, int precisionMode) {
   // clang-format off
   patterns.add<LinalgReduceToMKReduceConversion, // Exec after NormalizeReduceInitToIdentityPattern and si-to-fp
                 BroadcastOpRewrite,
@@ -3810,7 +4157,7 @@ void mlir::triton::populateLinalgToMKCanonicalizationPatterns(
       patterns.getContext());
   // clang-format on
 
-  if (!precisionPriority)
+  if (normalizePrecisionMode(precisionMode) <= 1)
     patterns.add<ArithRemFRewrite, DivFloatOpRewrite, PowFOpRewrite>(
         patterns.getContext());
   else
@@ -3818,9 +4165,9 @@ void mlir::triton::populateLinalgToMKCanonicalizationPatterns(
 }
 
 void mlir::triton::populateLinalgToMKShapeCanonicalizationPatterns(
-    RewritePatternSet &patterns, bool precisionPriority) {
+    RewritePatternSet &patterns, int precisionMode) {
   patterns.add<BoolOpShapeCanonicalizePattern>(
-      patterns.getContext(), precisionPriority /* precisionPriority */);
+      patterns.getContext(), precisionMode /* precisionMode */);
 }
 
 void mlir::triton::populateLinalgToMKConversionPatterns(

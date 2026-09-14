@@ -48,6 +48,7 @@
 #include "magic-kernel/Conversion/CoreDialectsToMK/Passes.h"
 #include "magic-kernel/Conversion/LegalizeTensorFormLoops/Passes.h"
 #include "magic-kernel/Conversion/LinalgToMK/Passes.h"
+#include "magic-kernel/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "wafer/Conversion/AllocateSharedMemory/Passes.h"
 #include "wafer/Conversion/ExportKernelSymbols/Passes.h"
@@ -105,6 +106,7 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
   // Core dialects to MK layer conversion passes
   mlir::triton::registerWaferMemrefToLLVMPass();
   mlir::triton::registerLinalgToMKPass();
+  mlir::triton::registerMKTransformsPasses();
   mlir::triton::registerCoreDialectsToMKPass();
   mlir::triton::registerLegalizeTensorFormLoopsPass();
   mlir::addr::registerAddrToLLVMPass();

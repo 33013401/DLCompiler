@@ -23,6 +23,7 @@ class WaferOptions:
     num_warps: int = 0
     num_ctas: int = 0
     num_stages: int = 1
+    precision_mode: int = 0
     num_buffers_warp_spec: int = 0
     num_consumer_groups: int = 0
     reg_dec_producer: int = 0
@@ -41,6 +42,8 @@ class WaferOptions:
     deprecated_fp8_dtypes: Tuple[str, ...] = ()
 
     def __post_init__(self):
+        if type(self.precision_mode) is not int or self.precision_mode not in (0, 1, 2):
+            raise ValueError("Wafer precision_mode must be 0, 1 or 2")
         if self.launch_mode not in ("simt", "cluster"):
             raise ValueError("Wafer launch_mode must be 'simt' or 'cluster'")
         if self.launch_mode == "cluster" and tuple(self.cluster_dims) != (1, 1, 1):
@@ -136,10 +139,20 @@ def _run_wafer_stage(source, arguments, source_name, output_name):
         return output_path.read_text(encoding="utf-8")
 
 
-def ttir_to_coreir(module):
-    core_to_mk = "--core-dialects-to-mk"
-    if os.getenv("PRECISION_PRIORITY", "0").lower() in ("1", "true", "yes"):
-        core_to_mk += "=precision-priority"
+def _precision_mode_from_env():
+    # Keep the old switch as mode 2; explicit FlagTree-style mode takes priority.
+    value = os.getenv("PRECISION_MODE")
+    if value is None:
+        return 2 if os.getenv("PRECISION_PRIORITY", "0").lower() in ("1", "true", "yes") else 0
+    if value not in ("0", "1", "2"):
+        raise ValueError("PRECISION_MODE must be 0, 1 or 2")
+    return int(value)
+
+
+def ttir_to_coreir(module, precision_mode=None):
+    if precision_mode is None:
+        precision_mode = _precision_mode_from_env()
+    core_to_mk = f"--core-dialects-to-mk=precision-mode={precision_mode}"
     return _run_wafer_stage(
         module,
         [
@@ -152,6 +165,7 @@ def ttir_to_coreir(module):
             "--legalize-tensor-form-loops",
             "--one-shot-bufferize",
             "--convert-bufferization-to-memref",
+            "--materialize-strided-linalg-inputs",
             "--cse",
             "--canonicalize",
         ],
@@ -453,6 +467,7 @@ class WaferBackend(BaseBackend):
         self.simulator = simulator_enabled()
         self.runtime = runtime_binary_enabled()
         self.device_log_abi = device_log_abi()
+        self.precision_mode = _precision_mode_from_env()
         self.binary_ext = "so" if self.runtime else "o"
 
     @staticmethod
@@ -466,6 +481,7 @@ class WaferBackend(BaseBackend):
             if name in options
         }
         arguments.setdefault("arch", self.target.arch)
+        arguments.setdefault("precision_mode", self.precision_mode)
         return WaferOptions(**arguments)
 
     def hash(self):
@@ -473,7 +489,7 @@ class WaferBackend(BaseBackend):
             "target": [self.target.backend, self.target.arch, self.target.warp_size],
             "simulator": self.simulator,
             "runtime": self.runtime,
-            "precision_priority": os.getenv("PRECISION_PRIORITY", "0"),
+            "precision_mode": self.precision_mode,
             "tools": [
                 file_fingerprint(_find_wafer_opt()),
                 file_fingerprint(_find_llvm_tool("mlir-translate")),
@@ -525,7 +541,7 @@ class WaferBackend(BaseBackend):
         stages["ttir"] = lambda source, metadata: self.make_ttir(
             source, metadata, options
         )
-        stages["coreir"] = lambda source, metadata: ttir_to_coreir(source)
+        stages["coreir"] = lambda source, metadata: ttir_to_coreir(source, options.precision_mode)
         stages["wafer_ir"] = lambda source, metadata: coreir_to_wafer_ir(source)
         stages["llir"] = lambda source, metadata: wafer_ir_to_llir(source, metadata)
         if self.runtime:

@@ -15,7 +15,9 @@ def CoreDialectsToMK : Pass<"core-dialects-to-mk", "mlir::ModuleOp"> {
   let constructor = "triton::createCoreDialectsToMKPass()";
   let options = [
      Option<"precisionPriority", "precision-priority", "bool", /*default*/"false",
-       "Enable precision priority mode, translating integer-related operations to CPU instructions">
+       "Enable precision priority mode, translating integer-related operations to RISC-V instructions (legacy alias for mode 2)">,
+     Option<"precisionMode", "precision-mode", "int", /*default*/"0",
+       "Integer precision: 0 permits fp32 lowering, 1 preserves i64, 2 preserves i32/i64 and division">
   ];
 }
 
