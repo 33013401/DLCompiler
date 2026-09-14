@@ -151,3 +151,18 @@ def test_libdevice_rename(device):
 
     triton_copy[(1, )](inp, out, BLOCK_SIZE)
     torch.testing.assert_close(out, inp)
+
+
+def test_libdevice_erf(device):
+    """Exercise the extern wrapper, independently of tl.erf's frontend entry."""
+    @triton.jit
+    def erf_kernel(inp, out, BLOCK: tl.constexpr):
+        indices = tl.arange(0, BLOCK)
+        values = tl.load(inp + indices)
+        tl.store(out + indices, libdevice.erf(values))
+
+    values = torch.tensor([-3.0, -1.5, -0.5, -0.0, 0.0, 0.5, 1.5, 3.0],
+                          dtype=torch.float32, device=device)
+    output = torch.empty_like(values)
+    erf_kernel[(1,)](values, output, BLOCK=8)
+    torch.testing.assert_close(output, torch.erf(values), atol=1e-3, rtol=1e-3)

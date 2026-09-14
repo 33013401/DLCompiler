@@ -73,9 +73,10 @@ def pytest_configure(config):
 
     wafer._run_tool = run_tool
 
-    # Select the native Kuiper runtime without invoking Torch vendor operators.
+    # Transport CPU oracle storages through Kuiper. Keep the driver's framework
+    # runtime intact so autotune Events and kernel launches use the same stream.
+    # No Torch vendor arithmetic is needed for the reference computation.
     runtime = wafer_runtime._KuiperRuntime()
-    wafer_runtime.get_runtime = lambda: runtime
     driver = triton.runtime.driver.active
     target = driver.get_current_target()
     if target.backend != "wafer":

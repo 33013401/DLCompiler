@@ -387,7 +387,14 @@ class DICPDriver(DriverBase):
         return args
 
     def get_device_interface(self):
-        if self.target == "ascend":
+        if self.target == "wafer":
+            from .wafer_runtime import get_runtime
+
+            runtime = get_runtime()
+            if not hasattr(runtime, "Event") or not hasattr(runtime, "synchronize"):
+                raise RuntimeError("Wafer benchmarking requires torch_txda Event and synchronize support")
+            return runtime
+        elif self.target == "ascend":
             import torch
 
             return torch.npu
@@ -399,7 +406,11 @@ class DICPDriver(DriverBase):
             assert False, f"Not implemented for {self.target}"
 
     def get_empty_cache_for_benchmark(self):
-        if self.target == "ascend":
+        if self.target == "wafer":
+            # Match FlagTree's TXDA benchmark policy: no device cache flush.
+            # None distinguishes this policy from other backends' zeroable tensor.
+            return None
+        elif self.target == "ascend":
             import torch
 
             cache_size = 192 * 1024 * 1024
@@ -450,4 +461,5 @@ class DICPDriver(DriverBase):
 
     @classmethod
     def clear_cache(self, cache):
-        cache.zero_()
+        if cache is not None:
+            cache.zero_()

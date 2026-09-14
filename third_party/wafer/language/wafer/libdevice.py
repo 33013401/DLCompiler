@@ -1317,8 +1317,9 @@ def cyl_bessel_i1(arg0, _semantic=None):
 
 @core.extern
 def erf(x, _semantic=None):
-    x = semantic.to_tensor(x, _semantic)
-    return core.tensor(_semantic.create_erf(x.handle), x.type)
+    # Triton 3.5 semantic converts values; IR operations live on its builder.
+    x = core.to_tensor(x, _semantic=_semantic)
+    return core.tensor(_semantic.builder.create_erf(x.handle), x.type)
 
 
 @core.extern
