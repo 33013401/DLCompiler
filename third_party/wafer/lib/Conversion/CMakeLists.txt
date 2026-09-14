@@ -22,3 +22,5 @@ add_subdirectory(ReconcilePtrCasts)
 # - TritonToStructured
 # - TritonToUnstructured
 # - UnstructuredToMemref
+
+add_subdirectory(MKPipeline)

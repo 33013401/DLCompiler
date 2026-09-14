@@ -24,6 +24,7 @@ class WaferOptions:
     num_ctas: int = 0
     num_stages: int = 1
     precision_mode: int = 0
+    enable_pipeline: bool = False
     num_buffers_warp_spec: int = 0
     num_consumer_groups: int = 0
     reg_dec_producer: int = 0
@@ -149,7 +150,7 @@ def _precision_mode_from_env():
     return int(value)
 
 
-def ttir_to_coreir(module, precision_mode=None):
+def ttir_to_coreir(module, precision_mode=None, enable_pipeline=False, num_stages=1):
     if precision_mode is None:
         precision_mode = _precision_mode_from_env()
     core_to_mk = f"--core-dialects-to-mk=precision-mode={precision_mode}"
@@ -166,6 +167,8 @@ def ttir_to_coreir(module, precision_mode=None):
             "--one-shot-bufferize",
             "--convert-bufferization-to-memref",
             "--materialize-strided-linalg-inputs",
+            *([f"--mk-pipeline=num-stages={num_stages} max-stages=2",
+               "--mk-loop-bound-canonicalize"] if enable_pipeline else []),
             "--cse",
             "--canonicalize",
         ],
@@ -174,7 +177,7 @@ def ttir_to_coreir(module, precision_mode=None):
     )
 
 
-def coreir_to_wafer_ir(module):
+def coreir_to_wafer_ir(module, enable_pipeline=False):
     return _run_wafer_stage(
         module,
         [
@@ -182,6 +185,7 @@ def coreir_to_wafer_ir(module):
             "--expand-strided-metadata",
             "--lower-affine",
             "--mk-to-wafer",
+            *(["--wafer-insert-barrier"] if enable_pipeline else []),
             "--cse",
         ],
         "coreir.mlir",
@@ -468,6 +472,7 @@ class WaferBackend(BaseBackend):
         self.runtime = runtime_binary_enabled()
         self.device_log_abi = device_log_abi()
         self.precision_mode = _precision_mode_from_env()
+        self.enable_pipeline = os.getenv("TRITON_PIPELINE", "0").lower() in ("1", "true", "yes")
         self.binary_ext = "so" if self.runtime else "o"
 
     @staticmethod
@@ -482,6 +487,7 @@ class WaferBackend(BaseBackend):
         }
         arguments.setdefault("arch", self.target.arch)
         arguments.setdefault("precision_mode", self.precision_mode)
+        arguments.setdefault("enable_pipeline", self.enable_pipeline)
         return WaferOptions(**arguments)
 
     def hash(self):
@@ -490,6 +496,7 @@ class WaferBackend(BaseBackend):
             "simulator": self.simulator,
             "runtime": self.runtime,
             "precision_mode": self.precision_mode,
+            "enable_pipeline": self.enable_pipeline,
             "tools": [
                 file_fingerprint(_find_wafer_opt()),
                 file_fingerprint(_find_llvm_tool("mlir-translate")),
@@ -541,8 +548,9 @@ class WaferBackend(BaseBackend):
         stages["ttir"] = lambda source, metadata: self.make_ttir(
             source, metadata, options
         )
-        stages["coreir"] = lambda source, metadata: ttir_to_coreir(source, options.precision_mode)
-        stages["wafer_ir"] = lambda source, metadata: coreir_to_wafer_ir(source)
+        stages["coreir"] = lambda source, metadata: ttir_to_coreir(
+            source, options.precision_mode, options.enable_pipeline, options.num_stages)
+        stages["wafer_ir"] = lambda source, metadata: coreir_to_wafer_ir(source, options.enable_pipeline)
         stages["llir"] = lambda source, metadata: wafer_ir_to_llir(source, metadata)
         if self.runtime:
             stages["so"] = lambda source, metadata: object_to_binary(

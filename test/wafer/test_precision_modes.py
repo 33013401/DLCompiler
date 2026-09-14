@@ -45,3 +45,20 @@ def test_strided_output_copyback(tmp_path):
     assert len(copies) == 2, result.stdout
     assert copies[0] == copies[1][::-1], result.stdout
     assert copies[0][0] != copies[0][1], result.stdout
+
+
+def test_pipeline_option_cache_isolation(monkeypatch, wafer_modules, fake_toolchain):
+    _, compiler, _ = wafer_modules
+    monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "0")
+    monkeypatch.setenv("TRITON_PIPELINE", "0")
+    plain = compiler.WaferBackend(GPUTarget("wafer", "tx81", 32))
+    before = plain.hash()
+    monkeypatch.setenv("TRITON_PIPELINE", "1")
+    pipelined = compiler.WaferBackend(GPUTarget("wafer", "tx81", 32))
+    assert not plain.parse_options({}).enable_pipeline
+    assert plain.hash() == before
+    assert pipelined.parse_options({}).enable_pipeline
+    assert pipelined.hash() != before
+    override = pipelined.parse_options({"enable_pipeline": False})
+    assert not override.enable_pipeline
+    assert override.hash() != pipelined.parse_options({}).hash()
