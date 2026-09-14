@@ -215,8 +215,12 @@ def pytest_runtest_setup(item):
 def pytest_runtest_makereport(item, call):
     result = yield
     report = result.get_result()
-    if report.when == "call" or report.failed:
-        record("test_result", outcome=report.outcome, phase=report.when,
+    if report.when == "call" or report.failed or report.skipped:
+        # skip marks may run before our setup hook: STATE can name the previous
+        # case, so result identity must come from pytest's report itself.
+        record("test_result", nodeid=report.nodeid,
+               launches=STATE["launches"] if report.when != "setup" else 0,
+               outcome=report.outcome, phase=report.when,
                detail=str(report.longrepr) if report.longrepr else None)
     if DEVICE_ERROR:
         pytest.exit("Stopping this process after a device launch error", returncode=3)

@@ -142,7 +142,9 @@ def pytest_runtest_makereport(item, call):
     result = yield
     report = result.get_result()
     if report.when == 'call' or report.failed or report.skipped:
-        hardware.record('test_result', outcome=report.outcome, phase=report.when,
+        hardware.record('test_result', nodeid=report.nodeid,
+                        launches=hardware.STATE['launches'] if report.when != 'setup' else 0,
+                        outcome=report.outcome, phase=report.when,
                         detail=str(report.longrepr) if report.longrepr else None)
     if hardware.DEVICE_ERROR:
         pytest.exit('Stopping after a real device launch error', returncode=3)
