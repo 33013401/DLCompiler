@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sysconfig
 import tempfile
+import weakref
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -255,6 +256,9 @@ static PyObject *launch(PyObject *, PyObject *args) {{
     if (!kernel_path) {{ Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
     const char *kernel_name = PyUnicode_AsUTF8(name_object);
     if (!kernel_name) {{ Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
+    void *binary = nullptr;
+    size_t size = 0;
+    if (!function) {{
     FILE *file = fopen(kernel_path, "rb");
     if (!file) {{ PyErr_SetFromErrnoWithFilename(PyExc_OSError, kernel_path); Py_DECREF(path_object); Py_DECREF(name_object); return NULL; }}
     long length = -1;
@@ -263,14 +267,27 @@ static PyObject *launch(PyObject *, PyObject *args) {{
         PyErr_Format(PyExc_OSError, "Invalid or empty Wafer kernel: %s", kernel_path);
         fclose(file); Py_DECREF(path_object); Py_DECREF(name_object); return NULL;
     }}
-    size_t size = (size_t)length;
-    void *binary = malloc(size);
+    size = (size_t)length;
+    binary = malloc(size);
     if (!binary || fread(binary, 1, size, file) != size) {{ fclose(file); free(binary); Py_DECREF(path_object); Py_DECREF(name_object); PyErr_SetString(PyExc_RuntimeError, "Failed to read Wafer kernel"); return NULL; }}
     fclose(file);
-    txError_t status = {launch_function}(kernel_name, (uint64_t)binary, size, {cluster_argument}
-        dim3({{(uint32_t)grid_x, (uint32_t)grid_y, (uint32_t)grid_z}}), dim3({{1, 1, 1}}),
-        runtime_args.data(), runtime_args.size() * sizeof(uint64_t), 0, stream);
+    }}
+    txError_t status;
+    // The argument tuple keeps tensor objects alive while the GIL is released.
+    // Both paths remain synchronous, including stream errors and module lifetime.
+    Py_BEGIN_ALLOW_THREADS
+    if (function) {{
+        status = {"txLaunchClusterKernel" if launch_mode == "cluster" else "txLaunchKernel"}(
+            (txFunction_t)function, {cluster_argument}
+            dim3({{(uint32_t)grid_x, (uint32_t)grid_y, (uint32_t)grid_z}}), dim3({{1, 1, 1}}),
+            runtime_args.data(), runtime_args.size() * sizeof(uint64_t), 0, stream);
+    }} else {{
+        status = {launch_function}(kernel_name, (uint64_t)binary, size, {cluster_argument}
+            dim3({{(uint32_t)grid_x, (uint32_t)grid_y, (uint32_t)grid_z}}), dim3({{1, 1, 1}}),
+            runtime_args.data(), runtime_args.size() * sizeof(uint64_t), 0, stream);
+    }}
     if (status == TX_SUCCESS) status = txStreamSynchronize(stream);
+    Py_END_ALLOW_THREADS
     free(binary);
     if (status != TX_SUCCESS) {{
         PyErr_Format(PyExc_RuntimeError, "Wafer kernel %s (%s) failed with Kuiper status 0x%x, stream=%p",
@@ -301,12 +318,66 @@ def __getattr__(name):
 
 class WaferUtils:
     def load_binary(self, name, kernel, shared_mem, device):
+        api = os.getenv("WAFER_LAUNCH_API", "ggl")
+        if api == "module":
+            owner = _LoadedModule(name, kernel, device)
+            return owner, owner.function, 0, 0, 1024
+        if api != "ggl":
+            raise ValueError("WAFER_LAUNCH_API must be 'ggl' or 'module'")
         # Kuiper loads the ELF during launch. Retain the binary as an opaque,
         # non-null lifetime token so CompiledKernel initializes only once.
         return kernel, 0, 0, 0, 1024
 
     def get_device_properties(self, device=None):
         return {"max_shared_mem": 3 * 1024 * 1024 - 2 * 0x10000}
+
+
+class _LoadedModule:
+    """Own one SDK module for CompiledKernel's lifetime, including ELF storage.
+
+    Device launches synchronize before returning, so normal destruction cannot
+    unload a module with an outstanding launch. The SDK ABI stays unchanged.
+    """
+    def __init__(self, name, binary, device):
+        runtime = _KuiperRuntime()
+        library = runtime.library
+        library.txModuleLoad.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_uint32]
+        library.txModuleGetFunction.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_char_p]
+        library.txModuleUnload.argtypes = [ctypes.c_void_p]
+        for operation in (library.txModuleLoad, library.txModuleGetFunction, library.txModuleUnload):
+            operation.restype = ctypes.c_int
+        if not binary or len(binary) > 0xFFFFFFFF:
+            raise ValueError("Wafer module ELF size must fit a nonzero uint32")
+        self.binary = ctypes.create_string_buffer(binary)
+        module, function = ctypes.c_void_p(), ctypes.c_void_p()
+        previous = runtime.current_device()
+        runtime.set_device(device)
+        try:
+            status = library.txModuleLoad(ctypes.byref(module), self.binary, len(binary))
+            if status:
+                raise RuntimeError(f"txModuleLoad({name}) failed with status 0x{status:x}")
+            self._release = weakref.finalize(self, self._unload, runtime, device, module)
+            status = library.txModuleGetFunction(ctypes.byref(function), module, name.encode())
+            if status or not function.value:
+                self._release()
+                raise RuntimeError(f"txModuleGetFunction({name}) failed with status 0x{status:x}")
+            self.function = function.value
+        finally:
+            runtime.set_device(previous)
+
+    @staticmethod
+    def _unload(runtime, device, module):
+        previous = runtime.current_device()
+        runtime.set_device(device)
+        try:
+            status = runtime.library.txModuleUnload(module)
+            if status:
+                raise RuntimeError(f"txModuleUnload failed with status 0x{status:x}")
+        finally:
+            runtime.set_device(previous)
+
+    def close(self):
+        self._release()
 
 
 class SimulatorUtils:
