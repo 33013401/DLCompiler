@@ -23,6 +23,26 @@ using namespace mlir;
 
 namespace dsa = mlir::dsa;
 
+template <typename DsaOpT>
+static void defBinaryOp(py::module &builderCls,
+                        const char *name) {
+  builderCls.def(
+      name, [](TritonOpBuilder &self, Value lhs, Value rhs, Value out) -> void {
+        self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+        self.getBuilder().create<DsaOpT>(self.getLastLoc(), lhs, rhs, out);
+      });
+}
+
+// Cast a Python list of dynamic-offset values to a SmallVector<Value>.
+static llvm::SmallVector<Value> castDynOffsets(py::list dynOffsets) {
+  llvm::SmallVector<Value> dyn;
+  dyn.reserve(py::len(dynOffsets));
+  for (py::handle arg : dynOffsets)
+    dyn.push_back(py::cast<Value>(arg));
+  return dyn;
+}
+
+
 static Value createDsaAlloc(TritonOpBuilder &self, py::object shapeObj,
                             py::object elementTyObj) {
   self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
@@ -135,6 +155,84 @@ void init_triton_tle(py::module &&m) {
   local_m.def("load_dialects", [](mlir::MLIRContext &context) {
     context.getOrLoadDialect<dsa::DsaDialect>();
   });
+  local_m
+      .def("create_dsa_to_tensor",
+           [](TritonOpBuilder &self, Type resultTy, Value src,
+              bool writable) -> Value {
+             self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+             auto &b = self.getBuilder();
+             auto writableAttr = b.getBoolAttr(writable);
+             auto op =
+                 self.create<dsa::ToTensorOp>(resultTy, src, writableAttr);
+             return op.getResult();
+           })
+      .def("create_dsa_to_buffer",
+           [](TritonOpBuilder &self, Value src, Value dst) -> void {
+             self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+             self.create<dsa::ToBufferOp>(src, dst);
+           });
+
+  local_m
+      .def(
+          "create_dsa_extract_slice",
+          [](TritonOpBuilder &self, Type resultTy, Value src,
+             const std::vector<int64_t> &staticOffsets, py::list dynOffsets,
+             const std::vector<int64_t> &sizes,
+             const std::vector<int64_t> &strides) -> Value {
+            self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+            auto &builder = self.getBuilder();
+            auto *ctx = builder.getContext();
+            auto dyn = castDynOffsets(dynOffsets);
+            auto op = self.create<dsa::ExtractSliceOp>(
+                resultTy, src, dyn, DenseI64ArrayAttr::get(ctx, staticOffsets),
+                DenseI64ArrayAttr::get(ctx, sizes),
+                DenseI64ArrayAttr::get(ctx, strides));
+            return op.getResult();
+          })
+      .def(
+          "create_dsa_insert_slice",
+          [](TritonOpBuilder &self, Type resultTy, Value src, Value tile,
+             const std::vector<int64_t> &staticOffsets, py::list dynOffsets,
+             const std::vector<int64_t> &sizes,
+             const std::vector<int64_t> &strides) -> Value {
+            self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+            auto &builder = self.getBuilder();
+            auto *ctx = builder.getContext();
+            auto dyn = castDynOffsets(dynOffsets);
+            auto op = self.create<dsa::InsertSliceOp>(
+                resultTy, src, tile, dyn,
+                DenseI64ArrayAttr::get(ctx, staticOffsets),
+                DenseI64ArrayAttr::get(ctx, sizes),
+                DenseI64ArrayAttr::get(ctx, strides));
+            return op.getResult();
+          });
+  // Three-operand binary arithmetic (out = lhs OP rhs).
+  defBinaryOp<dsa::AddOp>(local_m, "create_dsa_add");
+  defBinaryOp<dsa::SubOp>(local_m, "create_dsa_sub");
+  defBinaryOp<dsa::MulOp>(local_m, "create_dsa_mul");
+  defBinaryOp<dsa::MaximumOp>(local_m, "create_dsa_maximum");
+  defBinaryOp<dsa::MinimumOp>(local_m, "create_dsa_minimum");
+  defBinaryOp<dsa::DivOp>(local_m, "create_dsa_div");
+  local_m
+      .def("create_dsa_randgen",
+           [](TritonOpBuilder &self, Type outTy, Type seed0OutTy,
+              Type seed1OutTy, Value seed0, Value seed1, int32_t byteCount,
+              int16_t fmt) -> OpState {
+             self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+             auto &builder = self.getBuilder();
+             return builder.create<dsa::RandGenOp>(
+                 self.getLastLoc(), TypeRange{outTy, seed0OutTy, seed1OutTy},
+                 seed0, seed1, builder.getI32IntegerAttr(byteCount),
+                 builder.getI16IntegerAttr(fmt));
+           })
+      // Vendor-neutral same-nbytes type/shape reinterpret (e.g.
+      // i64[N]→i32[2N]). Backends lower this (Tsingmicro: mk.bitcast alias;
+      // others: tensor.bitcast).
+      .def("create_dsa_bitcast",
+           [](TritonOpBuilder &self, Type dstTy, Value src) -> Value {
+             self.getContext()->getOrLoadDialect<dsa::DsaDialect>();
+             return self.create<dsa::BitcastOp>(dstTy, src);
+           });
   local_m.def("create_dsa_alloc", &createDsaAlloc);
   local_m.def("create_dsa_copy", &createDsaCopy);
   local_m.def("create_dsa_local_pointers", &createDsaLocalPointers);

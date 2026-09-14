@@ -1048,12 +1048,12 @@ def RandGenOp : WaferOp<"randgen", []> {
   let summary = "Generate random numbers using two 64-bit seeds";
 
   let arguments = (ins
-    UI64:$src0,          // The first random seed
-    UI64:$src1,          // The second random seed
-    UI64:$dst0,          // Store the first random seed
-    UI64:$dst1,          // Store the second random seed
-    UI64:$dst2,          // Random value
-    I32Attr:$elem_num,   // Number of random values
+    MemRefOrInt:$src0,          // First seed vector address (16 x u64)
+    MemRefOrInt:$src1,          // Second seed vector address (16 x u64)
+    Arg<MemRefOrInt, "first seed output", [MemWrite]>:$dst0,
+    Arg<MemRefOrInt, "second seed output", [MemWrite]>:$dst1,
+    Arg<MemRefOrInt, "random output", [MemWrite]>:$dst2,
+    I32Attr:$elem_num,   // SDK byte count, a multiple of 128
     I16Attr:$fmt         // The date format of random value
   );
 }

@@ -56,6 +56,12 @@ def invalid_alloc_kernel(out):
     tle.dsa.alloc((-1,), tl.float32)
 
 
+@triton.jit
+def pipeline_kernel(out):
+    for i in tle.dsa.pipeline(0, 16, num_stages=2):
+        tl.store(out + i, i.to(tl.float32))
+
+
 def make_ttir(fn):
     target = GPUTarget("wafer", "tx81", 32)
     backend = make_backend(target)
@@ -73,6 +79,7 @@ def make_ttir(fn):
     (helper_kernel, ["dsa.alloc", "tt.call", "dsa.local_pointers"]),
     (remote_kernel, ["dsa.remote_pointers", "tt.get_program_id"]),
     (copy_kernel, ["dsa.copy"]),
+    (pipeline_kernel, ["scf.for", "tt.num_stages = 2"]),
 ])
 def test_tle_frontend(kernel, operations):
     module = make_ttir(kernel)

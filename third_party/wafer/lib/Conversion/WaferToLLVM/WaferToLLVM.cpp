@@ -472,6 +472,52 @@ struct BarrierConversion : public OpConversionPattern<wafer::BarrierOp> {
   }
 };
 
+struct RandGenOpConversion : public OpConversionPattern<wafer::RandGenOp> {
+  using OpConversionPattern<wafer::RandGenOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(wafer::RandGenOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto module = op->getParentOfType<ModuleOp>();
+    auto *ctx = rewriter.getContext();
+    auto voidTy = LLVM::LLVMVoidType::get(ctx);
+    auto i8PtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto i32Ty = rewriter.getI32Type();
+    auto i16Ty = rewriter.getI16Type();
+
+    // void __RandGen(uint64_t *src0, uint64_t *src1, uint64_t *dst0,
+    //                uint64_t *dst1, uint64_t *dst2, uint32_t byte_count,
+    //                uint16_t fmt);
+    SmallVector<Type, 7> argTypes = {i8PtrTy, i8PtrTy, i8PtrTy, i8PtrTy,
+                                     i8PtrTy, i32Ty,   i16Ty};
+    (void)triton::declareWaferRuntimeFunction(module, rewriter, loc, "__RandGen",
+                                      voidTy, argTypes);
+
+    Value src0 =
+        rewriter.create<LLVM::IntToPtrOp>(loc, i8PtrTy, adaptor.getSrc0());
+    Value src1 =
+        rewriter.create<LLVM::IntToPtrOp>(loc, i8PtrTy, adaptor.getSrc1());
+    Value dst0 =
+        rewriter.create<LLVM::IntToPtrOp>(loc, i8PtrTy, adaptor.getDst0());
+    Value dst1 =
+        rewriter.create<LLVM::IntToPtrOp>(loc, i8PtrTy, adaptor.getDst1());
+    Value dst2 =
+        rewriter.create<LLVM::IntToPtrOp>(loc, i8PtrTy, adaptor.getDst2());
+    Value byteCount = rewriter.create<LLVM::ConstantOp>(
+        loc, i32Ty, rewriter.getI32IntegerAttr(op.getElemNum()));
+    Value fmt = rewriter.create<LLVM::ConstantOp>(
+        loc, i16Ty, rewriter.getI16IntegerAttr(op.getFmt()));
+
+    rewriter.create<LLVM::CallOp>(
+        loc, TypeRange{}, "__RandGen",
+        ValueRange{src0, src1, dst0, dst1, dst2, byteCount, fmt});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+
 template <typename WaferOpT, const char *funcPrefix>
 struct AtomicBarrierOpConversion : public OpConversionPattern<WaferOpT> {
   using OpConversionPattern<WaferOpT>::OpConversionPattern;
@@ -2645,6 +2691,7 @@ public:
                  BarrierConversion,
                  RemoteStoreOpConversion,
                  RemoteLoadOpConversion,
+                 RandGenOpConversion,
                  AssertConversion>(
         context);
     // clang-format on

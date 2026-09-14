@@ -5,6 +5,7 @@ from .core import (
     copy,
     memory_space,
     local_ptr,
+    to_tensor, to_buffer, add, sub, mul, max, min, div, extract_slice, insert_slice,
 )
 from .types import (
     scope,
@@ -21,6 +22,7 @@ __all__ = [
     "copy",
     "memory_space",
     "local_ptr",
+    "to_tensor", "to_buffer", "add", "sub", "mul", "max", "min", "div", "extract_slice", "insert_slice",
     "scope",
     "local",
     "spm",
@@ -29,3 +31,6 @@ __all__ = [
     "DSASemantic",
     "DSASemanticError",
 ]
+
+from . import wafer
+__all__.append("wafer")

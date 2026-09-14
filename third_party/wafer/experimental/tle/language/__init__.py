@@ -1,6 +1,6 @@
 # flagtree tle
 from .core import (
-    load, )
+    load, extract_tile, insert_tile, cumsum)
 from .distributed import (
     B,
     P,
@@ -19,6 +19,7 @@ from .distributed import (
 
 __all__ = [
     "load",
+    "extract_tile", "insert_tile", "cumsum",
     "device_mesh",
     "S",
     "P",

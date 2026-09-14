@@ -2299,6 +2299,55 @@ struct AtomicCASOpConversion : public OpConversionPattern<mk::AtomicCASOp> {
 //===----------------------------------------------------------------------===//
 namespace {
 
+struct MKRandGenOpConversion : public OpConversionPattern<mk::RandGenOp> {
+  using OpConversionPattern<mk::RandGenOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mk::RandGenOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto seed0Type = dyn_cast<MemRefType>(op.getSeed0().getType());
+    auto seed1Type = dyn_cast<MemRefType>(op.getSeed1().getType());
+    auto outType = dyn_cast<MemRefType>(op.getOut().getType());
+    auto seed0OutType = dyn_cast<MemRefType>(op.getSeed0Out().getType());
+    auto seed1OutType = dyn_cast<MemRefType>(op.getSeed1Out().getType());
+    if (!seed0Type || !seed1Type || !outType || !seed0OutType || !seed1OutType)
+      return rewriter.notifyMatchFailure(
+          op, "mk.randgen expects memref operands after bufferization");
+    if (seed0Type.getShape() != ArrayRef<int64_t>({16}) ||
+        seed1Type.getShape() != ArrayRef<int64_t>({16}))
+      return rewriter.notifyMatchFailure(
+          op, "mk.randgen seeds must have shape [16]");
+    if (!seed0Type.getElementType().isInteger(64) ||
+        !outType.getElementType().isInteger(64))
+      return rewriter.notifyMatchFailure(
+          op, "mk.randgen currently supports only i64 element type");
+
+    int32_t byteCount = op.getByteCount();
+    if (byteCount <= 0 || (byteCount % 128) != 0)
+      return rewriter.notifyMatchFailure(
+          op, "mk.randgen byte_count must be a positive multiple of 128");
+    if (outType.getNumElements() * 8 != byteCount)
+      return rewriter.notifyMatchFailure(
+          op, "mk.randgen out numel * 8 must equal byte_count");
+
+    Location loc = op.getLoc();
+    Value seed0Ptr = createAddressFromMemref(rewriter, loc, op.getSeed0());
+    Value seed1Ptr = createAddressFromMemref(rewriter, loc, op.getSeed1());
+    Value outPtr = createAddressFromMemref(rewriter, loc, op.getOut());
+    Value seed0OutPtr =
+        createAddressFromMemref(rewriter, loc, op.getSeed0Out());
+    Value seed1OutPtr =
+        createAddressFromMemref(rewriter, loc, op.getSeed1Out());
+
+    rewriter.replaceOpWithNewOp<wafer::RandGenOp>(
+        op, TypeRange{}, seed0Ptr, seed1Ptr, seed0OutPtr, seed1OutPtr, outPtr,
+        rewriter.getI32IntegerAttr(byteCount),
+        rewriter.getI16IntegerAttr(op.getFmt()));
+    return success();
+  }
+};
+
+
 struct LinalgCopyRewrite : public OpRewritePattern<linalg::CopyOp> {
   using OpRewritePattern<linalg::CopyOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(linalg::CopyOp op,
@@ -2338,6 +2387,7 @@ void mlir::triton::populateMKToWaferConversionPatterns(
   patterns.add<ElementwiseConversion>(patterns.getContext());
 
   patterns.add<MemoryCopyConvertPattern,
+               MKRandGenOpConversion,
                LinalgReduceConversion,
                MKReduceOpConversion<mk::ReduceMaxOp, wafer::ReduceMaxOp>,
                MKReduceOpConversion<mk::ReduceMinOp, wafer::ReduceMinOp>,

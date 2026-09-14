@@ -17,6 +17,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
@@ -36,7 +38,8 @@ public:
     registry.insert<func::FuncDialect, mk::MagicKernelDialect,
                     tts::TritonStructuredDialect, triton::TritonDialect,
                     arith::ArithDialect, memref::MemRefDialect,
-                    tensor::TensorDialect>();
+                    tensor::TensorDialect, linalg::LinalgDialect,
+                    bufferization::BufferizationDialect>();
   }
 
   void runOnOperation() override {

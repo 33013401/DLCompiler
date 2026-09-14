@@ -25,7 +25,10 @@ void __RandGen(uint64_t *src0, uint64_t *src1, uint64_t *dst0, uint64_t *dst1,
                              }};
   ;
 
-  cmd->RandGen(&inst, *src0, *src1, *dst0, *dst1, *dst2, src_elem_num,
+  // The instruction receives SPM addresses, not seed words as addresses.
+  // src_elem_num is the SDK byte count (a multiple of 128).
+  cmd->RandGen(&inst, (uint64_t)src0, (uint64_t)src1, (uint64_t)dst0,
+               (uint64_t)dst1, (uint64_t)dst2, src_elem_num,
                (Data_Format)fmt);
 
   // Dispatch the command to accelerator

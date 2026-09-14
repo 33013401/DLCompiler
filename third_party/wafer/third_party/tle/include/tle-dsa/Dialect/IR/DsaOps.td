@@ -75,4 +75,126 @@ def Dsa_RemotePointersOp : Dsa_Op<"remote_pointers", [Pure]> {
   let results = (outs DsaRemotePointerType:$result);
 }
 
+class Dsa_BinaryOp<string mnemonic> : Dsa_Op<mnemonic,
+    [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins AnyRankedOrUnrankedMemRef:$lhs,
+                       AnyRankedOrUnrankedMemRef:$rhs,
+                       AnyRankedOrUnrankedMemRef:$out);
+  let results = (outs);
+  let assemblyFormat = [{
+    $lhs `,` $rhs `,` $out attr-dict `:` type($lhs) `,` type($rhs) `,` type($out)
+  }];
+}
+
+def Dsa_AddOp : Dsa_BinaryOp<"add"> {
+  let summary = "elementwise add on local memrefs (out = lhs + rhs)";
+}
+def Dsa_SubOp : Dsa_BinaryOp<"sub"> {
+  let summary = "elementwise subtract on local memrefs (out = lhs - rhs)";
+}
+def Dsa_MulOp : Dsa_BinaryOp<"mul"> {
+  let summary = "elementwise multiply on local memrefs (out = lhs * rhs)";
+}
+def Dsa_MaximumOp : Dsa_BinaryOp<"maximum"> {
+  let summary = "elementwise maximum on local memrefs (out = max(lhs, rhs))";
+}
+def Dsa_MinimumOp : Dsa_BinaryOp<"minimum"> {
+  let summary = "elementwise minimum on local memrefs (out = min(lhs, rhs))";
+}
+def Dsa_DivOp : Dsa_BinaryOp<"div"> {
+  let summary = "elementwise divide on local memrefs (out = lhs / rhs)";
+}
+
+def Dsa_ToTensorOp : Dsa_Op<"to_tensor", [MemoryEffects<[MemRead]>]> {
+  let summary = "Convert a DSA local buffer (memref) to a tl.tensor view";
+  let arguments = (ins AnyRankedOrUnrankedMemRef:$src, BoolAttr:$writable);
+  let results = (outs TT_Tensor:$result);
+  let assemblyFormat = [{
+    $src attr-dict `:` type($src) `->` type($result)
+  }];
+}
+
+def Dsa_ToBufferOp : Dsa_Op<"to_buffer", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Copy a tl.tensor value into an existing DSA local buffer (memref)";
+  let arguments = (ins TT_Tensor:$src, AnyRankedOrUnrankedMemRef:$dst);
+  let results = (outs);
+  let assemblyFormat = [{
+    $src `,` $dst attr-dict `:` type($src) `,` type($dst)
+  }];
+}
+
+def DsaSliceOffsetType : AnyTypeOf<[TT_Tensor, TT_Int]>;
+
+def Dsa_ExtractSliceOp : Dsa_Op<"extract_slice", [Pure]> {
+  let summary = "Extract a strided slice from a tl.tensor (mixed static/dynamic offsets, static sizes/strides)";
+  let arguments = (ins TT_Tensor:$src,
+                       Variadic<DsaSliceOffsetType>:$offsets,
+                       DenseI64ArrayAttr:$static_offsets,
+                       DenseI64ArrayAttr:$sizes,
+                       DenseI64ArrayAttr:$strides);
+  let results = (outs TT_Tensor:$result);
+}
+
+def Dsa_InsertSliceOp : Dsa_Op<"insert_slice", [Pure]> {
+  let summary = "Insert a strided slice into a tl.tensor (mixed static/dynamic offsets, static sizes/strides)";
+  let arguments = (ins TT_Tensor:$src,
+                       TT_Tensor:$tile,
+                       Variadic<DsaSliceOffsetType>:$offsets,
+                       DenseI64ArrayAttr:$static_offsets,
+                       DenseI64ArrayAttr:$sizes,
+                       DenseI64ArrayAttr:$strides);
+  let results = (outs TT_Tensor:$result);
+}
+
+
+def DsaRandGenSeedType : RankedTensorOf<[I64]>;
+def DsaRandGenOutType : RankedTensorOf<[I64]>;
+
+def Dsa_RandGenOp : Dsa_Op<"randgen",
+    [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "randgen for tsingmicro tx81";
+  let description = [{
+    Emits a single TX81 peri RandGen call. `seed0`/`seed1` are length-16 i64
+    seed vectors; `byte_count` is the random output size in bytes and must be
+    a multiple of 128. Results are `(out, seed0_out, seed1_out)`.
+  }];
+  let arguments = (ins
+    DsaRandGenSeedType:$seed0,
+    DsaRandGenSeedType:$seed1,
+    I32Attr:$byte_count,
+    I16Attr:$fmt
+  );
+  let results = (outs
+    DsaRandGenOutType:$out,
+    DsaRandGenSeedType:$seed0_out,
+    DsaRandGenSeedType:$seed1_out
+  );
+  let assemblyFormat = [{
+    $seed0 `,` $seed1 attr-dict `:` type($seed0) `,` type($seed1)
+    `->` type($out) `,` type($seed0_out) `,` type($seed1_out)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// dsa.bitcast
+//===----------------------------------------------------------------------===//
+
+def Dsa_BitcastOp : Dsa_Op<"bitcast", [Pure]> {
+  let summary = "Same-nbytes type/shape reinterpret (vendor-neutral)";
+  let description = [{
+    Reinterpret `src` as `result` when both tensors have the same total bit
+    size.  Element type and/or shape may change (e.g. `tensor<Nx i64>` →
+    `tensor<(2N)x i32>`).  This is a pure view: no data movement.
+
+    Backends lower this to a zero-cost alias when possible (e.g. Tsingmicro
+    `mk.bitcast`); a portable fallback is `tensor.bitcast`.
+  }];
+  let arguments = (ins AnyRankedTensor:$src);
+  let results = (outs AnyRankedTensor:$result);
+  let assemblyFormat = [{
+    $src attr-dict `:` type($src) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
 #endif // TLE_DSA_OPS
