@@ -34,4 +34,8 @@ def test_non_splat_constant_bufferization(dtype, shape, values, tmp_path):
     ], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "arith.constant dense<" not in result.stdout
-    assert f"memref<{shape}x{dtype}>" in result.stdout
+    if values.startswith("["):
+        assert f"memref<{shape}x{dtype}>" in result.stdout
+    else:
+        # A dynamic lookup into a splat may fold to the scalar itself.
+        assert f"arith.constant {values} : {dtype}" in result.stdout
