@@ -15,11 +15,14 @@ def test_non_splat_constant_bufferization(dtype, shape, values, tmp_path):
     from triton.backends.dicp_triton.wafer import _find_wafer_opt
 
     ty = f"tensor<{shape}x{dtype}>"
+    indices = [f"%i{axis}" for axis in range(len(shape.split("x")))]
+    args = ", ".join(f"{index}: index" for index in indices)
     source = tmp_path / "constant.mlir"
     source.write_text(f"""module {{
-      func.func @constant() -> {ty} {{
+      func.func @constant({args}) -> {dtype} {{
         %value = arith.constant dense<{values}> : {ty}
-        return %value : {ty}
+        %element = tensor.extract %value[{', '.join(indices)}] : {ty}
+        return %element : {dtype}
       }}
     }}""")
     result = subprocess.run([
