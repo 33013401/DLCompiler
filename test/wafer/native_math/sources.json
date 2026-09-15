@@ -6,7 +6,8 @@
     "Generic libdevice resolves through DICP to Wafer; no CANN imports.",
     "Original shapes/dtypes/tolerances retained; CPU comparisons replace NPU comparisons.",
     "isnan extends FlagTree test_special with Ascend dtype/256/NaN-index-1 coverage.",
-    "Special-value tests are additional coverage, not original Ascend cases."
+    "Special-value tests are additional coverage, not original Ascend cases.",
+    "ReLU uses ordered comparison/select to retain NaN and signed zero; original composed addition, shapes and tolerances retained."
   ],
   "flagtree_existing_baseline": "third_party/wafer/examples/test_libdevice.py::test_special (tanh/isnan, FP32, 4/128); reuse in place",
   "coverage": [
@@ -79,6 +80,16 @@
       "original_nodeid": "test/ascend/passed_tests/test_scalar_calc.py::test_scalar_tanh_calc[param_list0]",
       "target_nodeid": "test/wafer/native_math/test_unary.py::test_scalar_tanh_calc[param_list0]",
       "source_sha256": "ae44d1a50c8986e6c2602f7691d225363ee5a76eedc90c7878f3b568d104c530"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_relu.py::test_relu[param_list0]",
+      "target_nodeid": "test/wafer/native_math/test_relu.py::test_relu[param_list0]",
+      "source_sha256": "01c8e0e40b5613b1cb3d4a262f5ee422f170e8f2ed6c598de95264d4218a0524"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_relu.py::test_relu[param_list1]",
+      "target_nodeid": "test/wafer/native_math/test_relu.py::test_relu[param_list1]",
+      "source_sha256": "01c8e0e40b5613b1cb3d4a262f5ee422f170e8f2ed6c598de95264d4218a0524"
     }
   ]
 }
