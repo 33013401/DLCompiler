@@ -37,7 +37,7 @@ def test_runtime_dependencies_accept_old_and_new_configuration(
     archive_dir = tmp_path / "crt"
     archive_dir.mkdir()
     (archive_dir / "libvr.a").touch()
-    for name in ("libm.a", "libc.a", "libgcc.a"):
+    for name in ("libm.a", "libc.a", "libgcc.a", "libgloss.a"):
         (archive_dir / name).touch()
     monkeypatch.setenv("XUANTIE_NAME", str(toolchain))
     monkeypatch.setenv("WAFER_RUNTIME_LIB_DIR", str(archive_dir))

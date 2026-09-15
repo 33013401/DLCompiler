@@ -56,14 +56,23 @@ def test_assert_reports_and_terminates_with_ndebug(tmp_path):
     subprocess.run([str(exe)], check=True, timeout=10)
 
 
-def test_assert_links_to_firmware_without_posix_syscalls(wafer_modules, monkeypatch, tmp_path):
+@pytest.mark.parametrize("with_sdk_init", [False, True])
+def test_assert_links_to_firmware_without_posix_imports(wafer_modules, monkeypatch, tmp_path, with_sdk_init):
     if not os.getenv("WAFER_DEPS_ROOT"):
         pytest.skip("Wafer SDK required for RISC-V link test")
     _, compiler, _ = wafer_modules
     linker, libraries = compiler._runtime_link_inputs()
     monkeypatch.setenv("TRITON_CACHE_DIR", str(tmp_path / "cache"))
     source = tmp_path / "probe.c"
-    source.write_text('#include <assert.h>\nvoid probe(void) { __assert_func("probe", 1, "probe", "false"); }\n')
+    # module_init pulls the real intrinsic/common archives and their libc
+    # dependencies. An assertion-only object cannot expose missing libgloss.
+    source.write_text('''#include <assert.h>
+      extern void module_init(void *);
+      void probe(void *args) {
+    ''' + ('module_init(args);' if with_sdk_init else '') + '''
+        __assert_func("probe", 1, "probe", "false");
+      }
+    ''')
     obj = tmp_path / "probe.o"
     subprocess.run([str(linker), "-fPIC", "-O2", "-march=rv64imfdc", "-mabi=lp64d",
                     "-c", str(source), "-o", str(obj)], check=True)
@@ -74,5 +83,12 @@ def test_assert_links_to_firmware_without_posix_syscalls(wafer_modules, monkeypa
     nm = compiler._find_llvm_tool("llvm-nm")
     undefined = subprocess.check_output([str(nm), "--undefined-only", "--format=posix",
                                          metadata["kernel_path"]], text=True)
-    assert {line.split()[0] for line in undefined.splitlines()} == {"__assert_func"}
+    imports = {line.split()[0] for line in undefined.splitlines()}
+    assert "__assert_func" in imports
+    allowed = {"__assert_func", "__get_pid", "get_log_level", "monitor_write_log",
+               "rcs_ep_log", "rcs_kernel_printf", "rcs_kernel_vprintf",
+               "rt_free", "rt_malloc", "rt_thread_mdelay"}
+    assert imports <= allowed, imports - allowed
+    if not with_sdk_init:
+        assert imports == {"__assert_func"}
     assert compiler.file_fingerprint(original_libc) == before

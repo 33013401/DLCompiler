@@ -349,8 +349,12 @@ def _runtime_link_inputs():
         for name in ("libcommon_util.a", "libinstr_tx81.a", "liblibc_stub.a")
     ]
     libraries.append(wafer_lib_dir / "libvr.a")
+    # Xuantie GCC normally supplies libgloss along with libc. Keep that
+    # existing dependency explicit when using -nodefaultlibs, including it
+    # in the cache identity instead of relying on GCC's hidden defaults.
     libraries.extend(
-        _find_linker_library(linker, name) for name in ("libm.a", "libc.a", "libgcc.a")
+        _find_linker_library(linker, name)
+        for name in ("libm.a", "libc.a", "libgcc.a", "libgloss.a")
     )
     for library in libraries:
         if not library.is_file():
@@ -364,6 +368,7 @@ def _link_fingerprint(linker, libraries, log_abi=None):
         "linker": file_fingerprint(linker),
         "ld": file_fingerprint(linker.parent / "riscv64-unknown-elf-ld"),
         "flags": LINK_FLAGS,
+        "archive_groups": [4, len(libraries) - 4],
         "libraries": [file_fingerprint(path) for path in libraries],
         "device_log_abi": log_abi,
         "firmware_libc_symbols": FIRMWARE_LIBC_SYMBOLS,
@@ -467,7 +472,9 @@ def object_to_binary(obj, metadata, simulator=None, log_abi=None):
                 "-Wl,--start-group",
                 *(str(path) for path in libraries[:4]),
                 "-Wl,--end-group",
+                "-Wl,--start-group",
                 *(str(path) for path in libraries[4:]),
+                "-Wl,--end-group",
                 "-o",
                 str(binary_path),
             ]

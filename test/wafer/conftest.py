@@ -46,6 +46,7 @@ def fake_toolchain(tmp_path, monkeypatch, wafer_modules):
         "libm.a",
         "libc.a",
         "libgcc.a",
+        "libgloss.a",
     ):
         path = tmp_path / name
         path.write_bytes(name.encode())
