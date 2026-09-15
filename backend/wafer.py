@@ -205,7 +205,8 @@ def wafer_ir_to_llir(module, metadata):
             "--wafer-memref-to-llvm",
             "--addr-to-llvm",
             "--convert-scf-to-cf",
-            "--convert-math-to-llvm",
+            # Keep log1p for libm: log(1+x) loses tiny inputs and signed zero.
+            "--convert-math-to-llvm=approximate-log1p=false",
             "--convert-math-to-libm",
             "--convert-cf-to-llvm",
             "--convert-func-to-llvm",
