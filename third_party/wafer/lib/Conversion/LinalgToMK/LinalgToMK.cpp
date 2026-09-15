@@ -4110,6 +4110,70 @@ struct DenseConstantToFillPattern
   }
 };
 
+// Non-splat constants include reshape/view shape vectors. Preserve every
+// element and its row-major index instead of treating the tensor as a fill.
+struct DenseConstantToInsertPattern : OpConversionPattern<arith::ConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor /*adaptor*/,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto tensorType = dyn_cast<RankedTensorType>(op.getType());
+    if (!tensorType)
+      return failure();
+
+    auto denseAttr = dyn_cast<DenseElementsAttr>(op.getValue());
+    if (!denseAttr)
+      return failure();
+
+    if (denseAttr.isSplat())
+      return failure();
+
+    Type elemType = tensorType.getElementType();
+    if (!isa<IntegerType, IndexType, FloatType>(elemType))
+      return failure();
+
+    if (!tensorType.hasStaticShape())
+      return failure();
+
+    Location loc = op.getLoc();
+
+    Value result =
+        rewriter.create<tensor::EmptyOp>(loc, tensorType.getShape(), elemType);
+
+    SmallVector<int64_t> shape(tensorType.getShape());
+    int64_t rank = tensorType.getRank();
+
+    int64_t linear = 0;
+    for (Attribute attr : denseAttr.getValues<Attribute>()) {
+      SmallVector<Value> indices(rank);
+
+      int64_t tmp = linear;
+      for (int64_t d = rank - 1; d >= 0; --d) {
+        int64_t idx = tmp % shape[d];
+        tmp /= shape[d];
+        indices[d] = rewriter.create<arith::ConstantIndexOp>(loc, idx);
+      }
+
+      Value scalar;
+      if (isa<IndexType>(elemType)) {
+        auto intAttr = cast<IntegerAttr>(attr);
+        scalar = rewriter.create<arith::ConstantIndexOp>(loc, intAttr.getInt());
+      } else {
+        scalar = rewriter.create<arith::ConstantOp>(loc, elemType,
+                                                    cast<TypedAttr>(attr));
+      }
+
+      result = rewriter.create<tensor::InsertOp>(loc, scalar, result, indices);
+
+      ++linear;
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 } // namespace
 
 void mlir::triton::populateLinalgToMKPreProcessPatterns(
@@ -4175,5 +4239,6 @@ void mlir::triton::populateLinalgToMKConversionPatterns(
   patterns.add<AssertOpConverter>(patterns.getContext());
   // After NormalizeReduceInitToIdentityPattern and si-to-fp
   patterns.add<ReduceOpToElementwiseOpConverter>(patterns.getContext());
-  patterns.add<DenseConstantToFillPattern>(patterns.getContext());
+  patterns.add<DenseConstantToFillPattern, DenseConstantToInsertPattern>(
+      patterns.getContext());
 }
