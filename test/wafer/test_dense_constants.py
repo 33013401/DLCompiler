@@ -10,6 +10,7 @@ import pytest
     ("i32", "2x3", "[[1, 2, 3], [-4, 5, 6]]"),
     ("f32", "2x2", "[[1.25, -2.5], [3.0, 0.0]]"),
     ("index", "2", "[16, 512]"),
+    ("index", "2", "16"),
 ])
 def test_non_splat_constant_bufferization(dtype, shape, values, tmp_path):
     from triton.backends.dicp_triton.wafer import _find_wafer_opt

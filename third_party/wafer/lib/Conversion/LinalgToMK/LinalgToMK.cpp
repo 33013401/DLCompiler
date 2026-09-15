@@ -4091,7 +4091,7 @@ struct DenseConstantToFillPattern
     auto denseAttr = dyn_cast<DenseElementsAttr>(op.getValue());
     if (!denseAttr)
       return failure();
-    if (!isa<FloatType, IntegerType>(denseAttr.getElementType()))
+    if (!isa<FloatType, IntegerType, IndexType>(denseAttr.getElementType()))
       return failure();
     if (!denseAttr.isSplat())
       return failure();

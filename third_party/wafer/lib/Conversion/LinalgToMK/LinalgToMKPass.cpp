@@ -109,7 +109,7 @@ public:
       // Reduce op conversion will generate arith/math tensor type op
       target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect>(
           [](Operation *op) {
-            // Lower dense constant to linalg.fill
+            // Lower dense constants to fill/insert, including index shapes.
             if (auto constOp = dyn_cast<arith::ConstantOp>(op)) {
               if (!isa<RankedTensorType>(constOp.getResult().getType())) {
                 return true;
@@ -117,7 +117,7 @@ public:
 
               if (auto denseAttr =
                       dyn_cast<DenseElementsAttr>(constOp.getValue())) {
-                if (isa<FloatType, IntegerType>(denseAttr.getElementType())) {
+                if (isa<FloatType, IntegerType, IndexType>(denseAttr.getElementType())) {
                   return false;
                 }
               }
