@@ -1,0 +1,84 @@
+{
+  "source_commit": "b1991f118c66e00fd6948ed3c2e4a66232755475",
+  "flagtree_commit": "22f4ff0e14c5a967c21e388ef2a59f4e68aed941",
+  "native_entry": "torch_txda via guarded device_tensor; CPU input generation and independent references",
+  "changes": [
+    "Generic libdevice resolves through DICP to Wafer; no CANN imports.",
+    "Original shapes/dtypes/tolerances retained; CPU comparisons replace NPU comparisons.",
+    "isnan extends FlagTree test_special with Ascend dtype/256/NaN-index-1 coverage.",
+    "Special-value tests are additional coverage, not original Ascend cases."
+  ],
+  "flagtree_existing_baseline": "third_party/wafer/examples/test_libdevice.py::test_special (tanh/isnan, FP32, 4/128); reuse in place",
+  "coverage": [
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[-256-256-dtype0-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[-256-256-dtype0-float32]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[-256-256-dtype1-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[-256-256-dtype1-float16]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[-32-32-dtype0-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[-32-32-dtype0-float32]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[-32-32-dtype1-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[-32-32-dtype1-float16]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[3-32-dtype0-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[3-32-dtype0-float32]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[3-32-dtype1-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[3-32-dtype1-float16]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[37-64-dtype0-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[37-64-dtype0-float32]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[37-64-dtype1-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[37-64-dtype1-float16]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[781-1024-dtype0-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[781-1024-dtype0-float32]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_atan.py::test_elementwsie_common[781-1024-dtype1-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_elementwsie_common[781-1024-dtype1-float16]",
+      "source_sha256": "e2aac3ac9f85541eaec5c94edc7117306c016a92b88a333af95256a9a1635149"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_isnan.py::test_isnan[256-bfloat16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_isnan[256-bfloat16]",
+      "source_sha256": "704a192fcad5472750700f0ccc893f4078642643a462cf56d780df104d0c8698"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_isnan.py::test_isnan[256-float16]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_isnan[256-float16]",
+      "source_sha256": "704a192fcad5472750700f0ccc893f4078642643a462cf56d780df104d0c8698"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_isnan.py::test_isnan[256-float32]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_isnan[256-float32]",
+      "source_sha256": "704a192fcad5472750700f0ccc893f4078642643a462cf56d780df104d0c8698"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_scalar_calc.py::test_scalar_tanh_calc[param_list0]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_scalar_tanh_calc[param_list0]",
+      "source_sha256": "ae44d1a50c8986e6c2602f7691d225363ee5a76eedc90c7878f3b568d104c530"
+    }
+  ]
+}

@@ -2,6 +2,20 @@ from triton.language import core
 from triton.language.math import *
 
 
+def _float_unary(arg, fp32_symbol, fp64_symbol, semantic, predicate=False):
+    # The device math ABI takes FP32/FP64. Promote low-precision inputs before
+    # extern dispatch, then restore their dtype (predicates always return bool).
+    arg = semantic.to_tensor(arg)
+    dtype = arg.dtype
+    if dtype in (core.float16, core.bfloat16):
+        arg = semantic.cast(arg, core.float32)
+    result = core.extern_elementwise("", "", [arg], {
+        (core.float32,): (fp32_symbol, core.int1 if predicate else core.float32),
+        (core.float64,): (fp64_symbol, core.int1 if predicate else core.float64),
+    }, is_pure=True, _semantic=semantic)
+    return result if predicate else semantic.cast(result, dtype)
+
+
 @core.extern
 def clz(arg0, _semantic=None):
     return core.extern_elementwise(
@@ -964,13 +978,7 @@ def nearbyint(arg0, _semantic=None):
 
 @core.extern
 def isnan(arg0, _semantic=None):
-    return core.extern_elementwise(
-        "", "", [
-            arg0,
-        ], {
-            (core.dtype("fp32"), ): ("__nv_isnanf", core.dtype("int1")),
-            (core.dtype("fp64"), ): ("__nv_isnand", core.dtype("int1")),
-        }, is_pure=True, _semantic=_semantic)
+    return _float_unary(arg0, "__nv_isnanf", "__nv_isnand", _semantic, predicate=True)
 
 
 @core.extern
@@ -1074,11 +1082,15 @@ def sinh(arg0, _semantic=None):
 
 @core.extern
 def tanh(arg0, _semantic=None):
-    return core.extern_elementwise(
-        "", "", [arg0], {
-            (core.dtype("fp32"), ): ("__nv_tanhf", core.dtype("fp32")),
-            (core.dtype("fp64"), ): ("__nv_tanh", core.dtype("fp64")),
-        }, is_pure=True, _semantic=_semantic)
+    arg0 = _semantic.to_tensor(arg0)
+    result = _float_unary(arg0, "__nv_tanhf", "__nv_tanh", _semantic)
+    # TX81 loses -0 and returns NaN for +inf. Preserve zeros and exact limits
+    # with device comparisons/selects while keeping its finite vector path.
+    one = core.full((), 1, arg0.dtype, _semantic=_semantic)
+    result = core.where(arg0.__eq__(float("inf"), _semantic=_semantic), one, result, _semantic=_semantic)
+    result = core.where(arg0.__eq__(-float("inf"), _semantic=_semantic),
+                        one.__neg__(_semantic=_semantic), result, _semantic=_semantic)
+    return core.where(arg0.__eq__(0, _semantic=_semantic), arg0, result, _semantic=_semantic)
 
 
 @core.extern
@@ -1092,11 +1104,7 @@ def atan2(arg0, arg1, _semantic=None):
 
 @core.extern
 def atan(arg0, _semantic=None):
-    return core.extern_elementwise(
-        "", "", [arg0], {
-            (core.dtype("fp32"), ): ("__nv_atanf", core.dtype("fp32")),
-            (core.dtype("fp64"), ): ("__nv_atan", core.dtype("fp64")),
-        }, is_pure=True, _semantic=_semantic)
+    return _float_unary(arg0, "__nv_atanf", "__nv_atan", _semantic)
 
 
 @core.extern
@@ -1128,11 +1136,7 @@ def log10(arg0, _semantic=None):
 
 @core.extern
 def log1p(arg0, _semantic=None):
-    return core.extern_elementwise(
-        "", "", [arg0], {
-            (core.dtype("fp32"), ): ("__nv_log1pf", core.dtype("fp32")),
-            (core.dtype("fp64"), ): ("__nv_log1p", core.dtype("fp64")),
-        }, is_pure=True, _semantic=_semantic)
+    return _float_unary(arg0, "__nv_log1pf", "__nv_log1p", _semantic)
 
 
 @core.extern
