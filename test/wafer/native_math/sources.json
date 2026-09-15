@@ -8,7 +8,8 @@
     "isnan extends FlagTree test_special with Ascend dtype/256/NaN-index-1 coverage.",
     "Special-value tests are additional coverage, not original Ascend cases.",
     "ReLU uses ordered comparison/select to retain NaN and signed zero; original composed addition, shapes and tolerances retained.",
-    "log1p retains the original FP32 composed test; additional near-zero, near--1, infinity, NaN and signed-zero checks exercise stable device libm."
+    "log1p retains the original FP32 composed test; additional near-zero, near--1, infinity, NaN and signed-zero checks exercise stable device libm.",
+    "Multi-return reuses both original Triton kernels; host bookkeeping/reductions and reference autograd are CPU-side. Original BF16/FP32 dimensions, parameters, gradient multiplication and comparison tolerances are retained. Two executions are compared as before, with an additional independent loss/z-loss/gradient oracle."
   ],
   "flagtree_existing_baseline": "third_party/wafer/examples/test_libdevice.py::test_special (tanh/isnan, FP32, 4/128); reuse in place",
   "coverage": [
@@ -78,9 +79,19 @@
       "source_sha256": "704a192fcad5472750700f0ccc893f4078642643a462cf56d780df104d0c8698"
     },
     {
-      "original_nodeid": "test/ascend/passed_tests/test_scalar_calc.py::test_scalar_tanh_calc[param_list0]",
-      "target_nodeid": "test/wafer/native_math/test_unary.py::test_scalar_tanh_calc[param_list0]",
-      "source_sha256": "ae44d1a50c8986e6c2602f7691d225363ee5a76eedc90c7878f3b568d104c530"
+      "original_nodeid": "test/ascend/passed_tests/test_log1p.py::test_log1p[param_list0]",
+      "target_nodeid": "test/wafer/native_math/test_log1p.py::test_log1p[param_list0]",
+      "source_sha256": "e67ba0178f493db4820807c321084d94de2a53eb8ef170d1c0993e2eacf34988"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_multi_return.py::test_correctness_functional[1.0-dtype0-1e-08-0.05-2-512-4096]",
+      "target_nodeid": "test/wafer/native_math/test_multi_return.py::test_correctness_functional[1.0-dtype0-1e-08-0.05-2-512-4096]",
+      "source_sha256": "0d03129eb397c388d8ea5a409e2f14df2c9f5e00110a4fcd4ec122d207f4e33b"
+    },
+    {
+      "original_nodeid": "test/ascend/passed_tests/test_multi_return.py::test_correctness_functional[1.0-dtype1-1e-08-1e-06-2-512-4096]",
+      "target_nodeid": "test/wafer/native_math/test_multi_return.py::test_correctness_functional[1.0-dtype1-1e-08-1e-06-2-512-4096]",
+      "source_sha256": "0d03129eb397c388d8ea5a409e2f14df2c9f5e00110a4fcd4ec122d207f4e33b"
     },
     {
       "original_nodeid": "test/ascend/passed_tests/test_relu.py::test_relu[param_list0]",
@@ -93,9 +104,13 @@
       "source_sha256": "01c8e0e40b5613b1cb3d4a262f5ee422f170e8f2ed6c598de95264d4218a0524"
     },
     {
-      "original_nodeid": "test/ascend/passed_tests/test_log1p.py::test_log1p[param_list0]",
-      "target_nodeid": "test/wafer/native_math/test_log1p.py::test_log1p[param_list0]",
-      "source_sha256": "e67ba0178f493db4820807c321084d94de2a53eb8ef170d1c0993e2eacf34988"
+      "original_nodeid": "test/ascend/passed_tests/test_scalar_calc.py::test_scalar_tanh_calc[param_list0]",
+      "target_nodeid": "test/wafer/native_math/test_unary.py::test_scalar_tanh_calc[param_list0]",
+      "source_sha256": "ae44d1a50c8986e6c2602f7691d225363ee5a76eedc90c7878f3b568d104c530"
     }
+  ],
+  "excluded_original_cases": [
+    "test_multi_return.py::test_case (integer torch.rand input construction, G08)",
+    "test_multi_return.py::test_correctness_functional int32 parameter (integer torch.randn input construction, G08)"
   ]
 }
