@@ -37,6 +37,7 @@ def test_archive_update_invalidates_both_compiler_and_link_cache(
 ):
     _, compiler, _ = wafer_modules
     _, libraries, _ = fake_toolchain
+    linker, _ = compiler._runtime_link_inputs()
     monkeypatch.setenv("USE_SIM_MODE", "0")
     monkeypatch.setenv("WAFER_ENABLE_RUNTIME", "1")
     monkeypatch.setenv("TRITON_CACHE_DIR", str(tmp_path / "cache"))
@@ -55,7 +56,7 @@ def test_archive_update_invalidates_both_compiler_and_link_cache(
     first = compiler.object_to_binary(b"same object", metadata)
     path_before = metadata["kernel_path"]
     assert compiler.object_to_binary(b"same object", {}) == first
-    assert len(commands) == 1
+    assert sum(str(command[0]) == str(linker) for command in commands) == 1
     # Even a same-size edit with the old mtime restored must invalidate.
     old_stat = libraries[3].stat()
     libraries[3].write_bytes(b"X" * old_stat.st_size)
@@ -63,7 +64,7 @@ def test_archive_update_invalidates_both_compiler_and_link_cache(
     second = compiler.object_to_binary(b"same object", metadata)
     assert compiler.WaferBackend(TARGET).hash() != before
     assert second != first and metadata["kernel_path"] != path_before
-    assert len(commands) == 2
+    assert sum(str(command[0]) == str(linker) for command in commands) == 2
 
 
 def test_launcher_sdk_and_compiler_changes_invalidate_cache(

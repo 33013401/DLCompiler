@@ -57,3 +57,15 @@ def test_noc_requires_explicit_reference(audit, monkeypatch):
     monkeypatch.setattr(module.subprocess, "check_output", lambda *a, **k: next(outputs))
     with pytest.raises(ValueError, match="Unreviewed firmware imports.*direct_dte_attach"):
         module.audit_kernel(kernel)
+
+
+@pytest.mark.parametrize("abi,log_name", [("rcs", "_rcs_ep_log"), ("tx8", "_tsm_ep_log")])
+def test_sdk_diagnostics_are_scoped_to_the_log_abi(audit, monkeypatch, abi, log_name):
+    module, kernel, _ = audit
+    monkeypatch.setattr(module.subprocess, "check_output", lambda args, **kw:
+                        "ExportedDYNSYMTab" if "llvm-readelf" in str(args[0])
+                        else f"{log_name} U 0 0\n__assert_func U 0 0\n")
+    assert module.audit_kernel(kernel, log_abi=abi)["firmware_imports"] == sorted([log_name, "__assert_func"])
+    other_abi = "tx8" if abi == "rcs" else "rcs"
+    with pytest.raises(ValueError, match="Unreviewed firmware imports"):
+        module.audit_kernel(kernel, log_abi=other_abi)

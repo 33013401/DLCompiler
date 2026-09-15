@@ -2495,9 +2495,10 @@ public:
 
 private:
   static LLVM::LLVMFunctionType getAssertType(MLIRContext *context) {
-    auto llvmI32Ty = IntegerType::get(context, 32);
     auto llvmPtr = LLVM::LLVMPointerType::get(context);
-    return LLVM::LLVMFunctionType::get(llvmI32Ty, llvmPtr, true);
+    // Match CRT's void __Assert(const char *, ...).
+    return LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(context), llvmPtr,
+                                      true);
   }
 
   static FlatSymbolRefAttr getOrInsertAssert(PatternRewriter &rewriter,

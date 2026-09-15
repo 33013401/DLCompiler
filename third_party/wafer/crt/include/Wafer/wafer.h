@@ -81,7 +81,6 @@ int8_t *get_spm_memory_mapping_wrapper(uint64_t offset);
 #else
 void atomic_barrier_in();
 void atomic_barrier_out();
-void RT_ASSERT(bool value);
 #endif
 
 #ifdef __cplusplus

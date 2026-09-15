@@ -45,6 +45,9 @@ def audit_kernel(path, log_abi="rcs", noc_firmware_elf=None):
     )
     undefined = {line.split()[0] for line in symbols.splitlines() if line.strip()}
     allowed = {
+        # SDK assert.h and the installed Kcore module export table agree on
+        # __assert_func(file, line, function, expression), a non-returning call.
+        "__assert_func",
         "__get_pid",
         "get_log_level",
         "monitor_write_log",
@@ -53,9 +56,9 @@ def audit_kernel(path, log_abi="rcs", noc_firmware_elf=None):
         "rt_thread_mdelay",
     }
     allowed.update(
-        {"rcs_ep_log", "rcs_kernel_printf", "rcs_kernel_vprintf"}
+        {"rcs_ep_log", "_rcs_ep_log", "rcs_kernel_printf", "rcs_kernel_vprintf"}
         if log_abi == "rcs"
-        else {"tsm_ep_log", "tx8_kernel_printf", "tx8_kernel_vprintf"}
+        else {"tsm_ep_log", "_tsm_ep_log", "tx8_kernel_printf", "tx8_kernel_vprintf"}
     )
     firmware_evidence = None
     noc_imports = undefined & NOC_IMPORTS

@@ -283,6 +283,9 @@ LINK_FLAGS = (
     "-mabi=lp64d",
     "-O2",
     "-nostartfiles",
+    # All libraries are supplied explicitly and included in the cache key.
+    # Do not let GCC append the original libc after our firmware-adapted copy.
+    "-nodefaultlibs",
     "-Wl,--allow-shlib-undefined",
     "-Wl,--no-dynamic-linker",
     "-Wl,--gc-sections",
@@ -299,6 +302,12 @@ RCS_LOG_SYMBOLS = {
     "tsm_ep_log": "rcs_ep_log",
     "_tsm_ep_log": "_rcs_ep_log",
 }
+
+# Keep the CRT assertion bound to the firmware's newlib service. Pulling the
+# toolchain's static newlib implementation also pulls unsupported POSIX syscalls.
+# Rename only its private archive copy; internal libc references remain paired
+# with that implementation, while the CRT's __assert_func stays a firmware import.
+FIRMWARE_LIBC_SYMBOLS = {"__assert_func": "__wafer_newlib_assert_func"}
 
 
 def device_log_abi():
@@ -357,10 +366,11 @@ def _link_fingerprint(linker, libraries, log_abi=None):
         "flags": LINK_FLAGS,
         "libraries": [file_fingerprint(path) for path in libraries],
         "device_log_abi": log_abi,
+        "firmware_libc_symbols": FIRMWARE_LIBC_SYMBOLS,
+        "objcopy": file_fingerprint(_find_llvm_tool("llvm-objcopy")),
     }
     if log_abi == "rcs":
         result["log_symbols"] = RCS_LOG_SYMBOLS
-        result["objcopy"] = file_fingerprint(_find_llvm_tool("llvm-objcopy"))
     return result
 
 
@@ -393,6 +403,33 @@ def _adapt_logging_libraries(libraries, link_fingerprint):
     return adapted + libraries[4:]
 
 
+def _adapt_firmware_libc(libraries):
+    from triton.runtime.cache import get_cache_manager
+
+    adapted = list(libraries)
+    for index, library in enumerate(libraries):
+        if library.name != "libc.a":
+            continue
+        objcopy = _find_llvm_tool("llvm-objcopy")
+        cache = get_cache_manager(cache_digest({
+            "firmware_libc": file_fingerprint(library),
+            "symbols": FIRMWARE_LIBC_SYMBOLS,
+            "objcopy": file_fingerprint(objcopy),
+        }))
+        path = cache.get_file("libc.a")
+        if path is None:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output = Path(tmpdir) / "libc.a"
+                _run_tool([
+                    objcopy,
+                    *(f"--redefine-sym={old}={new}" for old, new in FIRMWARE_LIBC_SYMBOLS.items()),
+                    str(library), str(output),
+                ])
+                path = cache.put(output.read_bytes(), "libc.a", binary=True)
+        adapted[index] = Path(path)
+    return adapted
+
+
 def object_to_binary(obj, metadata, simulator=None, log_abi=None):
     if simulator is None:
         simulator = simulator_enabled()
@@ -422,6 +459,7 @@ def object_to_binary(obj, metadata, simulator=None, log_abi=None):
                 adapted_object = Path(tmpdir) / "kernel-rcs.o"
                 _adapt_logging_file(object_path, adapted_object)
                 object_path = adapted_object
+            libraries = _adapt_firmware_libc(libraries)
             command = [
                 str(linker),
                 *LINK_FLAGS,
