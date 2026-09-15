@@ -382,8 +382,18 @@ public:
 
     // SPM to SPM
     if (isSrcSPM && isDstSPM) {
-      SmallVector<int64_t> perm(
-          cast<MemRefType>(op.getSource().getType()).getRank());
+      int64_t rank = cast<MemRefType>(op.getSource().getType()).getRank();
+      // A scalar copy has no axes to transpose. In particular, i1 falls
+      // back to linalg loops, whose permutation map cannot be empty.
+      // Keep the scalar memory access so the later pass applies SPM mapping.
+      if (rank == 0) {
+        Location loc = op.getLoc();
+        Value val = rewriter.create<memref::LoadOp>(loc, op.getSource());
+        rewriter.create<memref::StoreOp>(loc, val, op.getTarget());
+        rewriter.eraseOp(op);
+        return success();
+      }
+      SmallVector<int64_t> perm(rank);
       std::iota(perm.begin(), perm.end(), 0);
       rewriter.replaceOpWithNewOp<linalg::TransposeOp>(op, op.getSource(),
                                                        op.getTarget(), perm);
