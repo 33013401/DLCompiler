@@ -35,6 +35,14 @@ def non_power_of_two(out):
     tl.store(out + i, i.to(tl.float32))
 
 
+@triton.jit
+def member_slice_kernel(out):
+    x = tl.full((16,), 1, tl.float32)
+    sub = x.extract_slice(offsets=(0,), sizes=(8,), strides=(1,))
+    y = x.insert_slice(sub + 1, offsets=(8,))
+    tl.store(out + tl.arange(0, 16), y)
+
+
 def make_module(fn, ascend=False, signature=None, constexprs=None):
     from triton._C.libtriton import dicp_triton
 
@@ -76,13 +84,40 @@ def test_original_dicp_bindings_and_linalg_options():
     assert len(pipelines) == 6
 
 
-@pytest.mark.parametrize("target", ["wafer", "ascend", "ascend-dsl"])
+@pytest.mark.parametrize("target", ["wafer", "wafer-cache-before-tle", "wafer-cache-after-tle", "ascend", "ascend-dsl"])
 def test_codegen_in_separate_processes(target):
     result = subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), target],
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_cache_tracks_vendor_sources_without_importing_them(tmp_path, monkeypatch):
+    from triton.runtime import cache
+    import sysconfig
+
+    root = tmp_path / "triton"
+    # A package initializer must never run just to compute a cache key. Both
+    # package and nested source edits must nevertheless invalidate that key.
+    source = root / "language/extra/vendor_probe/ops.py"
+    files = {
+        "runtime/cache.py": "# cache input\n",
+        "_C/libtriton." + sysconfig.get_config_var("EXT_SUFFIX").split(".")[-1]: "binary input",
+        "language/extra/__init__.py": "raise RuntimeError('unexpected import')\n",
+        "language/extra/vendor_probe/__init__.py": "raise RuntimeError('unexpected import')\n",
+        "language/extra/vendor_probe/ops.py": "VALUE = 1\n",
+    }
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    monkeypatch.setattr(cache, "__file__", str(root / "runtime/cache.py"))
+    initial = cache.triton_key.__wrapped__()
+    source.write_text("VALUE = 2\n")
+    changed_source = cache.triton_key.__wrapped__()
+    source.with_name("__init__.py").write_text("raise RuntimeError('still must not run')\n")
+    assert len({initial, changed_source, cache.triton_key.__wrapped__()}) == 3
 
 
 def test_frontend_text_can_enter_wafer_lowering(tmp_path):
@@ -137,6 +172,24 @@ def check_original_ascend_dsl():
 
 if __name__ == "__main__":
     assert wafer.build_role == "frontend"
+    if sys.argv[1].startswith("wafer-cache-"):
+        from triton.runtime.cache import triton_key
+
+        if sys.argv[1] == "wafer-cache-before-tle":
+            triton_key()
+        import triton.experimental.tle.language  # registers Wafer tensor members
+        members = (tl.tensor.extract_slice, tl.tensor.insert_slice, tl.tensor.__getitem__)
+        original_tanh = getattr(tl.math, "tanh", None)
+        triton_key()
+        assert not any(".deeplink.cann" in name for name in sys.modules)
+        assert members == (tl.tensor.extract_slice, tl.tensor.insert_slice, tl.tensor.__getitem__)
+        assert getattr(tl.math, "tanh", None) is original_tanh
+        text = str(make_module(member_slice_kernel))
+        assert '"dsa.extract_slice"' in text and '"dsa.insert_slice"' in text
+        sys.exit(0)
+    # Exercise the cache path before Ascend's explicit imports too.
+    from triton.runtime.cache import triton_key
+    triton_key()
     if sys.argv[1] == "ascend-dsl":
         check_original_ascend_dsl()
         sys.exit(0)

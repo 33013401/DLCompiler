@@ -38,7 +38,8 @@
       "wafer_proton_backend_filter.patch",
       "profiles/dicp_frontend_isolation.patch",
       "profiles/dicp_frontend_ir_policy.patch",
-      "profiles/lazy_deeplink_import.patch"
+      "profiles/lazy_deeplink_import.patch",
+      "profiles/cache_without_vendor_imports.patch"
     ]
   }
 }
