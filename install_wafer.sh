@@ -26,9 +26,7 @@ if [[ $SKIP_BUILD == 0 ]]; then
     bash "$SCRIPT_DIR/compile_wafer.sh"
 fi
 
-for artifact in \
-    "$BUILD_DIR/libtriton.so" \
-    "$BUILD_DIR/third_party/wafer/bin/wafer-opt"; do
+for artifact in "$BUILD_DIR/wafer-build.json"; do
     if [[ ! -f "$artifact" ]]; then
         echo "ERROR: required build artifact not found: $artifact" >&2
         exit 1

@@ -10,6 +10,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_BUILD_DIR = ROOT / "third_party" / "wafer" / "build_manual"
+sys.path.insert(0, str(ROOT / "scripts"))
+from wafer_artifacts import read_manifest
 
 
 def require_file(path: Path, description: str) -> Path:
@@ -25,29 +27,13 @@ def main() -> None:
     args = parser.parse_args()
 
     build_dir = args.build_dir.resolve()
-    require_file(build_dir / "libtriton.so", "combined libtriton.so")
-    require_file(
-        build_dir / "third_party" / "wafer" / "bin" / "wafer-opt",
-        "wafer-opt",
-    )
-    runtime_archive = require_file(
-        build_dir / "third_party" / "wafer" / "crt" / "lib" / "libvr.a",
-        "hardware vendor runtime libvr.a (build with USE_SIM_MODE=0)",
-    )
-    subprocess.run(
-        ["bash", str(ROOT / "scripts" / "apply_wafer_triton_patches.sh")],
-        check=True,
-        cwd=ROOT,
-    )
+    manifest_path = require_file(build_dir / "wafer-build.json", "isolated build manifest")
+    manifest = read_manifest(manifest_path)
 
     prebuilt_dir = build_dir / "python-package"
     prebuilt_dir.mkdir(parents=True, exist_ok=True)
-    links = {
-        prebuilt_dir / "libtriton.so": build_dir / "libtriton.so",
-        prebuilt_dir
-        / "wafer-opt": (build_dir / "third_party" / "wafer" / "bin" / "wafer-opt"),
-        prebuilt_dir / "libvr.a": runtime_archive,
-    }
+    links = {prebuilt_dir / name: Path(entry["path"])
+             for name, entry in manifest["artifacts"].items()}
     for destination, source in links.items():
         destination.unlink(missing_ok=True)
         destination.symlink_to(source)
@@ -59,6 +45,7 @@ def main() -> None:
     env["TRITON_VERSION"] = "3.5.0"
     env["TRITON_WHEEL_NAME"] = "triton"
     env["WAFER_PREBUILT_DIR"] = str(prebuilt_dir)
+    env["WAFER_BUILD_MANIFEST"] = str(manifest_path)
     env["WAFER_LANGUAGE_DIR"] = str(ROOT / "third_party" / "wafer" / "language")
     env["WAFER_EXPERIMENTAL_DIR"] = str(ROOT / "third_party" / "wafer" / "experimental")
     subprocess.run(

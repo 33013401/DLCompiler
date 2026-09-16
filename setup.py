@@ -25,6 +25,20 @@ from wheel.bdist_wheel import bdist_wheel
 
 root_dir = os.path.dirname(__file__)
 triton_dir = os.path.join(root_dir, "third_party/triton")
+wafer_build_manifest = None
+if os.getenv("WAFER_PREBUILT_DIR"):
+    manifest_path = os.getenv("WAFER_BUILD_MANIFEST")
+    if not manifest_path:
+        raise RuntimeError("WAFER_PREBUILT_DIR requires WAFER_BUILD_MANIFEST; use setup_on_wafer.py")
+    sys.path.insert(0, os.path.join(root_dir, "scripts"))
+    from wafer_artifacts import read_manifest
+
+    wafer_build_manifest = read_manifest(manifest_path)
+    from wafer_artifacts import sha256
+    for name, entry in wafer_build_manifest["artifacts"].items():
+        if sha256(Path(os.environ["WAFER_PREBUILT_DIR"]) / name) != entry["sha256"]:
+            raise RuntimeError(f"Prebuilt package input does not match the manifest: {name}")
+    triton_dir = wafer_build_manifest["frontend"]["source"]
 
 
 # Taken from https://github.com/pytorch/pytorch/blob/master/tools/setup_helpers/env.py
@@ -500,6 +514,14 @@ class BuildPy(build_py):
         )
         os.makedirs(runtime_output, exist_ok=True)
         shutil.copy2(runtime_source, os.path.join(runtime_output, "libvr.a"))
+        # The original Ascend MLIR test runner locates dicp_opt in triton/_C.
+        dicp_opt = wafer_build_manifest["artifacts"]["dicp_opt"]["path"]
+        compiler_output = os.path.join(self.build_lib, "triton", "_C")
+        os.makedirs(compiler_output, exist_ok=True)
+        shutil.copy2(dicp_opt, os.path.join(compiler_output, "dicp_opt"))
+        shutil.copy2(wafer_build_manifest["artifacts"]["FileCheck"]["path"],
+                     os.path.join(compiler_output, "FileCheck"))
+        shutil.copy2(os.environ["WAFER_BUILD_MANIFEST"], os.path.join(output_dir, "wafer-build.json"))
 
 
 class BuildWheel(bdist_wheel):
@@ -641,6 +663,11 @@ def get_package_dir(backends):
         )
     package_dir.update(get_language_extra_package_dirs(backends))
     package_dir.update(get_experimental_package_dirs())
+
+    if wafer_build_manifest is not None:
+        # The isolated frontend profile is the complete Python source. Do not
+        # overlay the older triton_patch copies onto its development tree.
+        return package_dir
 
     package_dir["triton/language/_utils.py"] = (
         f"{triton_patch_prefix_dir}/language/_utils.py"

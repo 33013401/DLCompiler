@@ -53,8 +53,13 @@ export XUANTIE_NAME=${XUANTIE_NAME:-$WAFER_DEPS_ROOT/Xuantie-900-gcc-elf-newlib-
 export WAFER_BUILD_DIR=${WAFER_BUILD_DIR:-$WAFER_WORKSPACE_ROOT/build/wafer}
 # Installed wheels include libvr.a; only override that default when this
 # workspace also has a freshly built hardware CRT.
-if [[ -z ${WAFER_RUNTIME_LIB_DIR:-} && -f "$WAFER_BUILD_DIR/third_party/wafer/crt/lib/libvr.a" ]]; then
-    export WAFER_RUNTIME_LIB_DIR="$WAFER_BUILD_DIR/third_party/wafer/crt/lib"
+if [[ -z ${WAFER_RUNTIME_LIB_DIR:-} ]]; then
+    for runtime_dir in "$WAFER_BUILD_DIR/tools/third_party/wafer/crt/lib" "$WAFER_BUILD_DIR/third_party/wafer/crt/lib"; do
+        if [[ -f "$runtime_dir/libvr.a" ]]; then
+            export WAFER_RUNTIME_LIB_DIR="$runtime_dir"
+            break
+        fi
+    done
 fi
 export DICP_BACKEND=wafer
 export USE_SIM_MODE=${USE_SIM_MODE:-1}
