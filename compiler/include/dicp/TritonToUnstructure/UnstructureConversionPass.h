@@ -91,6 +91,8 @@ private:
   splatAndLoadScenario(MemAccOpTy op, int rank,
                        PatternRewriter &rewriter) const;
 
+  // The four supported operation types define this member template in the
+  // .cpp file. A deleted primary declaration makes GCC reject those calls.
   template <typename... Args>
   MemAccOpTy createMemAccOp(MemAccOpTy op, Value ptrToAccess, Location loc,
                             PatternRewriter &rewriter,
