@@ -27,6 +27,7 @@ import test_common
 
 
 def torch_pointwise(x0, x1, dtype):
+    output_dtype = x0.dtype
     if dtype == "float16":
         x0 = x0.to(torch.float32)
         x1 = x1.to(torch.float32)
@@ -35,7 +36,8 @@ def torch_pointwise(x0, x1, dtype):
         x1 = x1.to(torch.float64)
     res = torch.div(x0, x1, rounding_mode="trunc")
     res = x0 - x1 * res
-    return res
+    # Compute the reference in higher precision, then match the kernel output dtype.
+    return res.to(output_dtype)
 
 
 @triton.jit
@@ -75,8 +77,6 @@ def test_case(param_list):
         x0 = test_common.generate_tensor(shape, dtype).npu()
         x1 = test_common.generate_tensor(shape, dtype).npu()
     y_ref = torch_pointwise(x0, x1, dtype)
-    if dtype == "float16":
-        y_ref = y_ref.to(torch.float16)
     y_cal = torch.zeros(shape, dtype=eval("torch." + dtype)).npu()
     triton_mod[ncore, 1, 1](x0, x1, y_cal, xblock, xblock_sub)
     # test_common.validate_cmp(dtype, y_cal, y_ref.npu())
