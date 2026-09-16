@@ -5,9 +5,4 @@ mlir_tablegen(TritonStructuredOps.h.inc -gen-op-decls)
 mlir_tablegen(TritonStructuredOps.cpp.inc -gen-op-defs)
 
 
-if(TARGET TritonStructuredTableGen)
-  add_public_tablegen_target(WaferTritonStructuredTableGen)
-  add_dependencies(TritonStructuredTableGen WaferTritonStructuredTableGen)
-else()
-  add_public_tablegen_target(TritonStructuredTableGen)
-endif()
+add_public_tablegen_target(TritonStructuredTableGen)

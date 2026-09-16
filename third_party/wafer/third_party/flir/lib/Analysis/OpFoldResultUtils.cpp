@@ -15,8 +15,7 @@
 
 namespace mlir {
 
-#if !defined(__FLIR_BUILD_INCUBATED__) &&                                  \
-  !defined(WAFER_USE_EXTERNAL_GET_INT_ATTR)
+#if !defined(__FLIR_BUILD_INCUBATED__)
 std::optional<int64_t> getIntAttr(const OpFoldResult ofr) {
   if (isa<Attribute>(ofr) && isa<IntegerAttr>(cast<Attribute>(ofr)))
     return dyn_cast<IntegerAttr>(cast<Attribute>(ofr)).getInt();
