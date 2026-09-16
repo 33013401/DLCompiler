@@ -785,6 +785,11 @@ void TritonToLinalgPass::runOnOperation() {
 
   auto moduleOp = getOperation();
 
+  // Raw MLIR enters through dicp_opt without the Python frontend's attributes.
+  // Keep AddPtr folding from undoing LoadStoreCanonicalizer's rewrites when
+  // using the shared frontend profile, just as for Ascend-generated modules.
+  moduleOp->setAttr("dicp.disable_addptr_fold", UnitAttr::get(&getContext()));
+
   // Check if the kernel contains tl.dot. Without tl.dot,
   // the kernel would be pure AIV kernel.
   bool existDot = false;

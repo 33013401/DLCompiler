@@ -1,0 +1,29 @@
+diff --git a/python/triton/language/extra/__init__.py b/python/triton/language/extra/__init__.py
+--- a/python/triton/language/extra/__init__.py
++++ b/python/triton/language/extra/__init__.py
+@@ -9,6 +9,12 @@
+ ):
+     # skip .py files (like libdevice.py)
+     if not is_pkg:
++        continue
++
++    # CANN mutates math functions on import. Load it only when Ascend codegen
++    # or the user explicitly requests deeplink, never during a Wafer import.
++    if module_name == __name__ + ".deeplink":
++        _backends.append(module_name)
+         continue
+ 
+     # import backends (like cuda and hip) that are included during setup.py
+@@ -24,3 +30,12 @@
+ __all__ = _backends
+ 
+ del _backends
++
++
++def __getattr__(name):
++    if name == "deeplink":
++        from importlib import import_module
++        module = import_module(__name__ + ".deeplink")
++        globals()[name] = module
++        return module
++    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
