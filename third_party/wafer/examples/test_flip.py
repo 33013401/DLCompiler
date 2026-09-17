@@ -25,7 +25,7 @@ def test_flip(M, N, dtype_str, device):
         tl.store(Z + off2d, x)
 
     x = numpy_random((N, M), dtype_str=dtype_str)
-    x = torch.from_numpy(x).to(device)
+    x = torch.from_numpy(x)
     y = torch.flip(x, (1, ))
     z = torch.empty_like(x, device="cpu")
     x_txda = x.to("txda")
