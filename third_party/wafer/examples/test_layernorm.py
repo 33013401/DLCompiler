@@ -88,8 +88,8 @@ class LayerNorm(torch.autograd.Function):
         # reshape input data into 2D tensor
         x_arg = x.reshape(-1, x.shape[-1])
         M, N = x_arg.shape
-        mean = torch.empty((M, ), dtype=torch.float32, device="cpu")
-        rstd = torch.empty((M, ), dtype=torch.float32, device="cpu")
+        mean = torch.empty((M, ), dtype=torch.float32, device=device)
+        rstd = torch.empty((M, ), dtype=torch.float32, device=device)
         # Less than 64KB per feature: enqueue fused kernel
         MAX_FUSED_SIZE = 65536 // x.element_size()
         BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(N))
@@ -110,22 +110,14 @@ class LayerNorm(torch.autograd.Function):
         #     x_arg.stride(0), N, eps,  #
         #     BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps, num_ctas=1)
 
-        x_arg_dev_txda = x_arg_dev.to("txda")
-        y_dev_txda = y_dev.to("txda")
-        weight_dev_txda = weight_dev.to("txda")
-        bias_dev_txda = bias_dev.to("txda")
-        mean_dev_txda = mean_dev.to("txda")
-        rstd_dev_txda = rstd_dev.to("txda")
         _layer_norm_fwd_fused[(M, )](  #
-            x_arg_dev_txda, y_dev_txda, weight_dev_txda, bias_dev_txda, mean_dev_txda, rstd_dev_txda,  #
+            x_arg_dev, y_dev, weight_dev, bias_dev, mean_dev, rstd_dev,  #
             x_arg.stride(0), N, eps,  #
             BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps, num_ctas=1)
-        with torch.no_grad():
-            y_dev.copy_(y_dev_txda.cpu())
-            mean_dev.copy_(mean_dev_txda.cpu())
-            rstd_dev.copy_(rstd_dev_txda.cpu())
         x = x_arg_dev.to("cpu")
         y = y_dev.to("cpu")
+        mean = mean_dev.cpu()
+        rstd = rstd_dev.cpu()
 
         ctx.save_for_backward(x, weight, bias, mean, rstd)
         ctx.BLOCK_SIZE = BLOCK_SIZE
