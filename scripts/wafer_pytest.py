@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import time
 
@@ -21,6 +22,21 @@ def record(event, **values):
 
 def pytest_addoption(parser):
     parser.addoption('--wafer-hardware', action='store_true', help='Run native TXDA device tests')
+    parser.addoption('--wafer-nodeids', help='Exact nodeids from the accepted suite; fail if any are absent')
+
+
+def pytest_collection_modifyitems(config, items):
+    selection = config.getoption('--wafer-nodeids')
+    if selection:
+        requested = set(Path(selection).read_text().splitlines())
+        missing = requested - {item.nodeid for item in items}
+        if missing:
+            raise pytest.UsageError(f'Accepted cases missing from collection: {sorted(missing)}')
+        excluded = [item for item in items if item.nodeid not in requested]
+        items[:] = [item for item in items if item.nodeid in requested]
+        config.hook.pytest_deselected(items=excluded)
+        record('selection', excluded=[item.nodeid for item in excluded])
+    record('collection', nodeids=[item.nodeid for item in items])
 
 
 @pytest.fixture(scope='session')
@@ -41,8 +57,12 @@ def wafer_device(request):
     def enter(metadata):
         STATE['started'] += 1
         record('launch_start', kernel=metadata.get()['name'])
+        # A process killed by this timer leaves an unmatched launch_start.
+        # The outer runner stops scheduling device work on that evidence.
+        signal.setitimer(signal.ITIMER_REAL, float(os.getenv('WAFER_TEST_LAUNCH_TIMEOUT', '60')))
 
     def leave(metadata):
+        signal.setitimer(signal.ITIMER_REAL, 0)
         STATE['completed'] += 1
         record('launch_complete', kernel=metadata.get()['name'])
 
@@ -52,9 +72,10 @@ def wafer_device(request):
             if str(path).endswith('.json'):
                 data = json.loads(Path(path).read_text())
                 if 'kernel_path' in data:
-                    audit_kernel(data['kernel_path'], data['device_log_abi'], os.getenv('WAFER_NOC_FIRMWARE_ELF'))
-                    record('compiled', kernel=name, path=data['kernel_path'])
-                    break
+                    audit = audit_kernel(data['kernel_path'], data['device_log_abi'], os.getenv('WAFER_NOC_FIRMWARE_ELF'))
+                    record('compiled', kernel=name, path=data['kernel_path'], audit=audit)
+                    return
+        raise RuntimeError(f'No Wafer ELF metadata found for {name}')
 
     for hook, fn in [(knobs.runtime.launch_enter_hook, enter), (knobs.runtime.launch_exit_hook, leave),
                      (knobs.runtime.kernel_load_end_hook, loaded)]:

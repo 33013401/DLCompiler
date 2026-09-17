@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Run Wafer examples or unchanged Ascend files and retain exact results.
-
-Activate wafer-torch310 first. Kernel execution uses the installed wheel; the
-example harness transports CPU reference storages through the real Kuiper API.
-"""
-
+"""Run native TXDA tests in isolated processes, keeping exact nodeids and launch evidence."""
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,92 +11,89 @@ import subprocess
 import sys
 import time
 
-
 REPO = Path(__file__).resolve().parents[1]
-EXAMPLES = REPO / "third_party/wafer/examples"
+EXAMPLES = REPO / 'third_party/wafer/examples'
+MANIFEST = REPO / 'test/wafer/suites/accepted.txt'
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--execution", choices=("compile", "hardware"), default="compile")
-    parser.add_argument("--timeout", type=int, default=180)
-    parser.add_argument("--maxfail", type=int, default=0)
-    parser.add_argument("--suite", choices=("examples", "ascend"), default="examples")
-    parser.add_argument("--select", nargs="*", help="Relative filenames; omitted means all test files")
-    parser.add_argument("--nodeids-file", type=Path,
-                        help="Ascend only: JSON array of exact original pytest nodeids to rerun")
-    parser.add_argument("--resume", action="store_true")
+    parser.add_argument('--output-dir', required=True, type=Path)
+    parser.add_argument('--suite', choices=('accepted', 'examples', 'ops', 'runtime', 'native_math', 'host'), default='accepted')
+    parser.add_argument('--select', nargs='+', help='Paths relative to the suite root (repository root for accepted)')
+    parser.add_argument('--timeout', type=int, default=1800, help='Per-file timeout; any timeout stops device scheduling')
     args = parser.parse_args()
-    args.output_dir = args.output_dir.resolve()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    source_root = EXAMPLES if args.suite == "examples" else REPO / "test/ascend/passed_tests"
-    files = sorted(path for path in source_root.rglob("test_*.py")
-                   if path.name != "test_common.py")
-    if args.nodeids_file:
-        if args.suite != "ascend":
-            parser.error("--nodeids-file requires --suite ascend")
-        args.nodeids_file = args.nodeids_file.resolve()
-        nodeids = json.loads(args.nodeids_file.read_text())
-        if not isinstance(nodeids, list) or not nodeids or not all(isinstance(node, str) for node in nodeids):
-            parser.error("--nodeids-file must contain a nonempty JSON array of nodeids")
-        requested_files = {node.split("::", 1)[0] for node in nodeids}
-        missing = requested_files - {str(path.relative_to(REPO)) for path in files}
-        if missing:
-            parser.error(f"Nodeids reference unknown Ascend files: {sorted(missing)}")
-        files = [path for path in files if str(path.relative_to(REPO)) in requested_files]
+    output = args.output_dir.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    # Never merge stale evidence from another source state into a fresh run.
+    if (output / 'summary.json').exists():
+        parser.error('Output already contains a run; choose a new directory')
+    accepted = defaultdict(list)
+    for node in MANIFEST.read_text().splitlines():
+        accepted[node.split('::', 1)[0]].append(node)
+    root = {'accepted': REPO, 'examples': EXAMPLES, 'host': REPO / 'test/wafer'}.get(args.suite,
+            REPO / 'test/wafer' / args.suite)
+    if args.suite == 'accepted':
+        files = [REPO / name for name in accepted]
+    else:
+        files = sorted(root.glob('test_*.py') if args.suite == 'host' else root.rglob('test_*.py'))
+        files = [p for p in files if p.name != 'test_common.py']
     if args.select:
-        selected = set(args.select)
-        files = [path for path in files if str(path.relative_to(source_root)) in selected]
-        missing = selected - {str(path.relative_to(source_root)) for path in files}
-        if missing:
-            parser.error(f"Unknown example files: {sorted(missing)}")
-    # Device assertion diagnostics and NOC demos follow ordinary numerical tests.
-    files.sort(key=lambda path: (
-        2 if path.name == "test_assert.py" or "tle" in path.parts
-        else 1 if path.name == "test_dot_scaled.py" else 0, str(path)))
+        requested = set(args.select)
+        found = {str(p.relative_to(root)) for p in files}
+        if requested - found:
+            parser.error(f'Unknown files: {sorted(requested - found)}')
+        files = [p for p in files if str(p.relative_to(root)) in requested]
+    files.sort(key=lambda p: (2 if '/tle/' in str(p) else 1 if p.name == 'test_dot_scaled.py' else 0, str(p)))
     environment = os.environ.copy()
-    environment.update(DICP_BACKEND="wafer", USE_SIM_MODE="0", WAFER_ENABLE_RUNTIME="1",
-                       OMP_NUM_THREADS="4", MKL_NUM_THREADS="4", PYTHONUNBUFFERED="1")
-    environment.setdefault("TRITON_CACHE_DIR", str(args.output_dir.parent / "cache"))
-    if args.suite == "ascend":
-        # Opt-in pytest plugin maps only the host tensor/reference entry points.
-        # Original kernels, parameter sets and assertions remain unmodified.
-        environment["PYTHONPATH"] = os.pathsep.join(filter(None, (
-            str(REPO / "test/wafer"), environment.get("PYTHONPATH"))))
-    blocked = None
-    results = []
+    environment['PYTHONPATH'] = os.pathsep.join(filter(None, (str(REPO / 'scripts'), environment.get('PYTHONPATH'))))
+    if args.suite == 'host':
+        # Host link tests import the source backend but link the delivered CRT.
+        from triton.backends.dicp_triton import wafer
+        environment.setdefault('WAFER_RUNTIME_LIB_DIR', str(Path(wafer.__file__).parent / 'lib'))
+    if args.suite != 'host':
+        for key, expected in dict(DICP_BACKEND='wafer', USE_SIM_MODE='0', WAFER_ENABLE_RUNTIME='1').items():
+            if environment.get(key) != expected:
+                parser.error(f'Activate the Wafer environment first: requires {key}={expected}')
+    try:
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True).strip()
+    except subprocess.CalledProcessError:
+        revision = None
+    summary = dict(suite=args.suite, revision=revision, python=sys.executable,
+                   selection_sha256=hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
+                   files=[], blocked_reason=None)
     for index, source in enumerate(files, 1):
-        relative = str(source.relative_to(source_root))
-        directory = args.output_dir / relative.removesuffix(".py")
+        relative = str(source.relative_to(REPO))
+        directory = output / relative.removesuffix('.py')
         directory.mkdir(parents=True, exist_ok=True)
-        result_path = directory / "result.json"
-        if args.resume and result_path.exists():
-            results.append(json.loads(result_path.read_text()))
-            continue
-        if blocked:
-            result = {"file": relative, "status": "blocked_after_device_error", "reason": blocked}
+        record = dict(file=relative, source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())
+        if summary['blocked_reason']:
+            record.update(status='not_run_after_device_error', reason=summary['blocked_reason'])
         else:
-            events_path = directory / "events.jsonl"
-            events_path.write_text("")
-            environment["WAFER_EXAMPLE_EVENTS"] = str(events_path)
-            command = [sys.executable, "-m", "pytest", "-q", "--tb=short", "-r", "a",
-                       str(source), f"--wafer-execution={args.execution}",
-                       f"--maxfail={args.maxfail}", f"--junitxml={directory / 'junit.xml'}"]
-            if args.suite == "ascend":
-                command += ["-p", "upstream_adapter"]
-                if args.nodeids_file:
-                    command += [f"--wafer-nodeids={args.nodeids_file}"]
+            events_path = directory / 'events.jsonl'
+            events_path.write_text('')
+            environment['WAFER_TEST_EVENTS'] = str(events_path)
+            # These two accepted files have mode-2 evidence, not mode-0 evidence.
+            precision = 2 if source.name in ('test_mod.py', 'test_device_print.py') else 0
+            environment['PRECISION_MODE'] = str(precision)
+            command = [sys.executable, '-m', 'pytest', '-q', '-p', 'wafer_pytest', str(source), '--tb=short', '-ra',
+                       f'--junitxml={directory / "junit.xml"}']
+            if args.suite != 'host':
+                command.append('--wafer-hardware')
+            if args.suite == 'accepted':
+                selection = directory / 'nodeids.txt'
+                selection.write_text('\n'.join(accepted[relative]) + '\n')
+                command.append(f'--wafer-nodeids={selection}')
+            print(f'[{index}/{len(files)}] {relative}', flush=True)
             started = time.monotonic()
-            print(f"[{index}/{len(files)}] {args.execution}: {relative}", flush=True)
-            timeout = False
-            with (directory / "pytest.log").open("w") as output:
+            timed_out = False
+            with (directory / 'pytest.log').open('w') as log:
                 process = subprocess.Popen(command, cwd=REPO.parent, env=environment,
-                                           stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                                           stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 try:
                     code = process.wait(timeout=args.timeout)
                 except subprocess.TimeoutExpired:
-                    timeout = True
+                    timed_out = True
                     os.killpg(process.pid, signal.SIGTERM)
                     try:
                         process.wait(timeout=5)
@@ -109,37 +102,25 @@ def main():
                         process.wait()
                     code = process.returncode
             events = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
-            tests = [event for event in events if event["event"] == "test_result"]
-            counts = Counter(event["outcome"] for event in tests)
-            nodes = next((event["nodeids"] for event in events if event["event"] == "collection"), [])
-            launches = sum(event["event"] == "launch_complete" for event in events)
-            started_launches = sum(event["event"] == "launch_start" for event in events)
-            errors = [event for event in events if event["event"] == "launch_error"]
-            status = "timeout" if timeout else "passed" if code == 0 else "failed"
-            if args.execution == "compile" and code == 0:
-                status = "compiled" if any(event["event"] == "compiled" for event in events) else "no_kernel_executed"
-            result = {
-                "file": relative, "execution": args.execution, "status": status,
-                "returncode": code, "seconds": round(time.monotonic() - started, 3),
-                "collected": len(nodes), "outcomes": dict(counts), "completed_launches": launches,
-                "collection_errors": sum(event["event"] == "collection_error" for event in events),
-                "compiled_kernels": sum(event["event"] == "compiled" for event in events),
-                "not_completed": sorted(set(nodes) - {event["nodeid"] for event in tests}),
-                "command": command, "log": str(directory / "pytest.log"),
-            }
-            if args.execution == "hardware" and (errors or started_launches != launches):
-                blocked = f"Device launch failed or did not finish in {relative}; inspect its events/log before further device work."
-            print(f"  {status}: {dict(counts)}, launches={launches}, {result['seconds']}s", flush=True)
-        result_path.write_text(json.dumps(result, indent=2) + "\n")
-        results.append(result)
-        summary = {"suite": args.suite, "execution": args.execution, "files": results, "blocked_reason": blocked}
-        (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    # Include the trailing resumed files even when no new process was needed.
-    summary = {"suite": args.suite, "execution": args.execution, "files": results, "blocked_reason": blocked}
-    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"Saved {args.output_dir / 'summary.json'}", flush=True)
-    return int(any(result["status"] not in ("passed", "compiled") for result in results))
+            tests = [e for e in events if e['event'] == 'test_result']
+            counts = Counter(e['outcome'] for e in tests)
+            launches = Counter(e['event'] for e in events)
+            collected = next((e['nodeids'] for e in events if e['event'] == 'collection'), [])
+            completed = {e['nodeid'] for e in tests}
+            missing = sorted(set(collected) - completed)
+            record.update(status='passed' if code == 0 and not missing else 'failed', returncode=code,
+                          seconds=round(time.monotonic() - started, 3), precision_mode=precision,
+                          collected=len(collected), outcomes=dict(counts), completed_launches=launches['launch_complete'],
+                          passed_without_launch=[e['nodeid'] for e in tests if e['outcome'] == 'passed' and not e['launches']],
+                          not_completed=missing, command=command, log=str(directory / 'pytest.log'))
+            if timed_out or code < 0 or code == 3 or launches['device_error'] or launches['launch_start'] != launches['launch_complete']:
+                summary['blocked_reason'] = f'Incomplete launch, device error or process timeout/crash in {relative}; inspect its log before continuing.'
+            print(f"  {record['status']}: {dict(counts)}, launches={launches['launch_complete']}", flush=True)
+        summary['files'].append(record)
+        (directory / 'result.json').write_text(json.dumps(record, indent=2) + '\n')
+        (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    return int(any(row['status'] != 'passed' for row in summary['files']))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())
