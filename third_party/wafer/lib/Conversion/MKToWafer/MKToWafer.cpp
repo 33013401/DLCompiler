@@ -2024,17 +2024,22 @@ private:
     return "";
   }
 
-  // For printf, need to extend int32 or float64.
-  static Value printfPromoteValue(RewriterBase &rewriter, Value value) {
+  // C varargs require integers of at least 32 bits and floating-point values
+  // promoted to double. Scalar and tensor printing must use the same ABI.
+  static Value printfPromoteValue(RewriterBase &rewriter, Value value,
+                                  bool hex, bool isSigned) {
     auto *context = rewriter.getContext();
     auto type = value.getType();
     auto loc = UnknownLoc::get(context);
     auto b = LLVM::TritonLLVMOpBuilder(loc, rewriter);
 
-    bool isUnsigned = type.isUnsignedInteger();
+    if (hex && isa<FloatType>(type)) {
+      type = IntegerType::get(context, type.getIntOrFloatBitWidth());
+      value = rewriter.create<LLVM::BitcastOp>(loc, type, value);
+    }
     if (type.isIntOrIndex() && type.getIntOrFloatBitWidth() < 32) {
-      if (isUnsigned) {
-        return b.zext(ui32_ty, value);
+      if (hex || !isSigned) {
+        return b.zext(i32_ty, value);
       } else {
         return b.sext(i32_ty, value);
       }
@@ -2099,7 +2104,7 @@ private:
 
     SmallVector<Value> allArgs{formatStrValue};
     if (arg.has_value())
-      allArgs.push_back(printfPromoteValue(rewriter, arg.value()));
+      allArgs.push_back(printfPromoteValue(rewriter, arg.value(), hex, isSigned));
     b.call(getOrAddPrintFuncDecl(rewriter), allArgs);
   }
 
@@ -2157,15 +2162,17 @@ private:
     auto printfRef = getOrInsertPrintf(rewriter, parentModule);
     std::string formatSpecifierStr = getFormatSubstr(
         memElementType, op.getHex(), std::nullopt, op.getIsSigned()[0]);
-    formatSpecifierStr += " \0";
+    formatSpecifierStr += ' ';
+    formatSpecifierStr.push_back('\0');
     auto prefix = op.getPrefix();
     std::string prefixNewline = "\n" + prefix.str();
+    prefixNewline.push_back('\0');
     Value prefixValue = getOrCreateGlobalString(
         loc, rewriter, "frmt_prefix" + prefix.str(),
-        StringRef(prefixNewline.c_str(), 128), parentModule);
+        StringRef(prefixNewline), parentModule);
     Value formatSpecifierCst = getOrCreateGlobalString(
-        loc, rewriter, "frmt_spec" + formatSpecifierStr,
-        StringRef(formatSpecifierStr.c_str(), 8), parentModule);
+        loc, rewriter, "frmt_spec" + StringRef(formatSpecifierStr).drop_back().str(),
+        StringRef(formatSpecifierStr), parentModule);
     Value newLineCst = getOrCreateGlobalString(
         loc, rewriter, "nl", StringRef("\n\0", 2), parentModule);
 
@@ -2196,12 +2203,8 @@ private:
 
     Value elementLoad =
         rewriter.create<memref::LoadOp>(loc, op.getOperands()[0], loopIvs);
-    if (elementLoad.getType() == rewriter.getF32Type())
-      elementLoad = rewriter.create<mlir::LLVM::FPExtOp>(
-          loc, rewriter.getF64Type(), elementLoad);
-    else if (elementLoad.getType() == rewriter.getI8Type())
-      elementLoad = rewriter.create<mlir::LLVM::SExtOp>(
-          loc, rewriter.getI32Type(), elementLoad);
+    elementLoad = printfPromoteValue(rewriter, elementLoad, op.getHex(),
+                                    op.getIsSigned()[0]);
     rewriter.create<LLVM::CallOp>(
         loc, getPrintfType(context), printfRef,
         ArrayRef<Value>({formatSpecifierCst, elementLoad}));
