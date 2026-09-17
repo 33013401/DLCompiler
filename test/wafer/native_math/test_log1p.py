@@ -21,6 +21,7 @@
 """Ascend log1p algorithm and original parameter matrix, using native Wafer tensors."""
 import pytest
 import torch
+import torch_txda  # noqa: F401 -- registers the TXDA device
 import triton
 import triton.language as tl
 from triton.language.extra import libdevice
@@ -40,13 +41,13 @@ def triton_log1p(
 
 
 @pytest.mark.parametrize("param_list", [["float32", (2, 4096, 8), 2, 32768, 1024]])
-def test_log1p(param_list, device_tensor):
+def test_log1p(param_list):
     sigtype, shape, ncore, xblock, xblock_sub = param_list
     torch.manual_seed(0)
     a = torch.randn(shape, dtype=getattr(torch, sigtype))
     b = torch.randn_like(a)
-    out = device_tensor(torch.zeros_like(a))
-    triton_log1p[(ncore,)](device_tensor(a), device_tensor(b), out, a.numel(), xblock, xblock_sub)
+    out = (torch.zeros_like(a)).to("txda")
+    triton_log1p[(ncore,)]((a).to("txda"), (b).to("txda"), out, a.numel(), xblock, xblock_sub)
     torch.testing.assert_close(out.cpu(), a + torch.log1p(b), rtol=1e-4, atol=1e-4, equal_nan=True)
 
 
@@ -57,11 +58,11 @@ def log1p_kernel(X, Y, N: tl.constexpr):
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-def test_log1p_special_values(dtype, device_tensor):
+def test_log1p_special_values(dtype):
     host = torch.tensor([-2, -1, -1 + torch.finfo(dtype).eps, -1e-7, -1e-8, -0.0, 0.0, 1e-8,
                          1e-7, 1e-4, 1, 2, 10, float("inf"), -float("inf"), float("nan")], dtype=dtype)
-    out = device_tensor(torch.zeros_like(host))
-    log1p_kernel[(1,)](device_tensor(host), out, host.numel())
+    out = (torch.zeros_like(host)).to("txda")
+    log1p_kernel[(1,)]((host).to("txda"), out, host.numel())
     # No absolute tolerance: log(1+x) incorrectly rounds tiny x to zero.
     expected, actual = torch.log1p(host), out.cpu()
     tolerance = 1e-6 if dtype == torch.float32 else 1e-3

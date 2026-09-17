@@ -22,10 +22,11 @@
 """Original Ascend cross-entropy/gradient kernels with native Wafer tanh.
 
 Host reductions and the independent autograd reference run on CPU; all Triton
-kernels receive guarded TXDA tensors. See sources.json for coverage mapping.
+kernels receive native TXDA tensors.
 """
 import pytest
 import torch
+import torch_txda  # noqa: F401 -- registers the TXDA device
 import triton
 import triton.language as tl
 from triton.language.extra import libdevice
@@ -281,11 +282,11 @@ def element_mul_kernel(
         tl.store(X_ptr + X_offsets, X_block * grad_output, mask=X_offsets < n_cols)
 
 
-def run_cross_entropy(host, target, grad, device_tensor):
+def run_cross_entropy(host, target, grad):
     rows, cols = host.shape
-    x, y = device_tensor(host), device_tensor(target)
-    loss = device_tensor(torch.zeros(rows, dtype=host.dtype))
-    z_loss = device_tensor(torch.zeros(rows, dtype=host.dtype))
+    x, y = (host).to("txda"), (target).to("txda")
+    loss = (torch.zeros(rows, dtype=host.dtype)).to("txda")
+    z_loss = (torch.zeros(rows, dtype=host.dtype)).to("txda")
     non_ignore = int((target != 0).sum())
     # Preserve the original kernel, grid, softcap, smoothing and reduction.
     # Framework bookkeeping/reductions are CPU-side, not another NPU OP.
@@ -295,7 +296,7 @@ def run_cross_entropy(host, target, grad, device_tensor):
         min(32768, triton.next_power_of_2(cols)), False, True,
     )
     # The original backward multiplies its in-place gradient by grad_output.
-    element_mul_kernel[(rows,)](x, x.stride(0), device_tensor(grad), cols,
+    element_mul_kernel[(rows,)](x, x.stride(0), (grad).to("txda"), cols,
                                min(32768, triton.next_power_of_2(cols)))
     return loss.cpu().sum(), z_loss.cpu().sum(), x.cpu()
 
@@ -323,13 +324,13 @@ def reference_cross_entropy(host, target, grad):
     (1.0, torch.bfloat16, 1e-8, 5e-2),
     (1.0, torch.float32, 1e-8, 1e-6),
 ])
-def test_correctness_functional(B, T, V, scalar, dtype, atol, rtol, device_tensor):
+def test_correctness_functional(B, T, V, scalar, dtype, atol, rtol):
     torch.manual_seed(0)
     host = torch.randn(B * T, V, dtype=dtype) * scalar
     target = torch.randint(0, V, (B * T,), dtype=torch.long)
     grad = torch.randn((), dtype=dtype)
-    first = run_cross_entropy(host, target, grad, device_tensor)
-    second = run_cross_entropy(host, target, grad, device_tensor)
+    first = run_cross_entropy(host, target, grad)
+    second = run_cross_entropy(host, target, grad)
     reference = reference_cross_entropy(host, target, grad)
     for actual, repeat, expected in zip(first, second, reference):
         # Keep the source's two-execution comparisons and add independent truth.

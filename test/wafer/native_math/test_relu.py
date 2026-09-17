@@ -21,6 +21,7 @@
 """Ascend relu algorithm and original parameter matrix, using native Wafer tensors."""
 import pytest
 import torch
+import torch_txda  # noqa: F401 -- registers the TXDA device
 import triton
 import triton.language as tl
 
@@ -49,13 +50,13 @@ def triton_relu(
     ["float32", (2, 4096, 8), 2, 32768, 512],
     ["float16", (2, 4096, 8), 2, 32768, 512],
 ])
-def test_relu(param_list, device_tensor):
+def test_relu(param_list):
     sigtype, shape, ncore, xblock, xblock_sub = param_list
     torch.manual_seed(0)
     a = torch.randn(shape, dtype=getattr(torch, sigtype))
     b = torch.randn_like(a)
-    out = device_tensor(torch.zeros_like(a))
-    triton_relu[(ncore,)](device_tensor(a), device_tensor(b), out, a.numel(), xblock, xblock_sub)
+    out = (torch.zeros_like(a)).to("txda")
+    triton_relu[(ncore,)]((a).to("txda"), (b).to("txda"), out, a.numel(), xblock, xblock_sub)
     tolerance = 1e-3 if sigtype == "float16" else 1e-4
     torch.testing.assert_close(out.cpu(), a + torch.relu(b), rtol=tolerance, atol=tolerance, equal_nan=True)
 
@@ -68,10 +69,10 @@ def relu_kernel(X, Y, N: tl.constexpr):
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-def test_relu_special_values(dtype, device_tensor):
+def test_relu_special_values(dtype):
     host = torch.tensor([-float("inf"), -1, -0.0, 0.0, 1e-5, 1, float("inf"), float("nan")], dtype=dtype)
-    out = device_tensor(torch.zeros_like(host))
-    relu_kernel[(1,)](device_tensor(host), out, host.numel())
+    out = (torch.zeros_like(host)).to("txda")
+    relu_kernel[(1,)]((host).to("txda"), out, host.numel())
     expected, actual = torch.relu(host), out.cpu()
     torch.testing.assert_close(actual, expected, rtol=0, atol=0, equal_nan=True)
     torch.testing.assert_close(torch.signbit(actual[:-1]), torch.signbit(expected[:-1]))
