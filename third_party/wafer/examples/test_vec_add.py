@@ -37,7 +37,7 @@ def add_kernel(x_ptr,  # *Pointer* to first input vector.
 
 
 def add(x: torch.Tensor, y: torch.Tensor):
-    output_torch = x + y
+    output_torch = x.cpu() + y.cpu()
     x = x.to(DEVICE)
     y = y.to(DEVICE)
     # We need to preallocate the output.
@@ -52,14 +52,8 @@ def add(x: torch.Tensor, y: torch.Tensor):
     #  - Each torch.tensor object is implicitly converted into a pointer to its first element.
     #  - `triton.jit`'ed functions can be indexed with a launch grid to obtain a callable GPU kernel.
     #  - Don't forget to pass meta-parameters as keywords arguments.
-    x_txda = x.to("txda")
-    y_txda = y.to("txda")
-    output_txda = output.to("txda")
-    add_kernel[grid](x_txda, y_txda, output_txda, n_elements, BLOCK_SIZE=1024)
-    with torch.no_grad():
-        output.copy_(output_txda.cpu())
-    # We return a handle to z but, since `torch.cuda.synchronize()` hasn't been called, the kernel is still
-    # running asynchronously at this point.
+    add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
+    # The production Wafer launcher synchronizes; read back for the CPU oracle.
     output = output.to("cpu")
     print(f"The maximum difference between torch and triton is "
           f"{torch.max(torch.abs(output_torch - output))}")
