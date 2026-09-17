@@ -99,7 +99,7 @@ def test_mean_pr(param_list):
     with torch.no_grad():
         y_cal.copy_(y_cal_txda.cpu())
     if dtype == "int8":
-        torch.allclose(
+        assert torch.allclose(
             torch.tensor(y_ref.astype(np.float32)).cpu(),
             y_cal,
             rtol=1e-03,
@@ -107,6 +107,6 @@ def test_mean_pr(param_list):
             equal_nan=True,
         )
     else:
-        torch.allclose(
+        assert torch.allclose(
             torch.tensor(y_ref).cpu(), y_cal, rtol=1e-03, atol=1e-03, equal_nan=True
         )

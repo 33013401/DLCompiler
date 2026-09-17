@@ -64,4 +64,4 @@ def test_umulhi():
     yyy = y.numpy()
     z_ref = umulhi32(xxx, yyy)
     z_ref1 = torch.from_numpy(z_ref).cpu()
-    torch.equal(z_tri, z_ref1)
+    assert torch.equal(z_tri, z_ref1)
