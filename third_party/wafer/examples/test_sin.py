@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -49,12 +50,16 @@ def sin_triton(x):
     x = x.to(DEVICE)
     output = output.to(DEVICE)
     # Launch the kernel
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
     sin_kernel[grid](
-        x,
-        output,
+        x_txda,
+        output_txda,
         n_elements,
         BLOCK_SIZE=1024,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     output = output.to('cpu')
     return output
 
@@ -64,7 +69,7 @@ def sin_triton(x):
 ])
 def test_sin(size, dtype, device="cpu"):
     # Create a random tensor
-    x = torch.randn(size, device=device, dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
 
     # Call the Triton kernel
     output = sin_triton(x)

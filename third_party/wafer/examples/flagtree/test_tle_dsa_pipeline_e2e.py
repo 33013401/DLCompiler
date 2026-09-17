@@ -114,7 +114,13 @@ def elementwise_add(A, B, C, XBLOCK=32, YBLOCK=64):
     xnumel, ynumel = A.shape
     grid = (triton.cdiv(xnumel, XBLOCK), )
 
-    return elementwise_add_kernel[grid](A, B, C, xnumel, ynumel, *A.stride(), *B.stride(), *C.stride(), XBLOCK, YBLOCK)
+    A_txda = A.to("txda")
+    B_txda = B.to("txda")
+    C_txda = C.to("txda")
+    compiled = elementwise_add_kernel[grid](A_txda, B_txda, C_txda, xnumel, ynumel, *A_txda.stride(), *B_txda.stride(), *C_txda.stride(), XBLOCK, YBLOCK)
+    with torch.no_grad():
+        C.copy_(C_txda.cpu())
+    return compiled
 
 
 class TestTLEPipelineEndToEnd:

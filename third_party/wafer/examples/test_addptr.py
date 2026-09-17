@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -21,12 +22,16 @@ def addptr(in0, out0):
 
 
 def test(device):
-    input = torch.arange(0, 11, device=device, dtype=torch.float32)
-    output = torch.full((11, ), 0, device=device, dtype=torch.float32)
+    input = torch.arange(0, 11, device="cpu", dtype=torch.float32)
+    output = torch.full((11, ), 0, device="cpu", dtype=torch.float32)
     grid = lambda meta: (1, )
 
     print(output)
-    addptr[grid](input, output)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    addptr[grid](input_txda, output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(input)
     print(output)
     assert torch.equal(input, output)

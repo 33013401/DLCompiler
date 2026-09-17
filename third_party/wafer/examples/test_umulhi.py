@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import numpy as np
@@ -64,7 +65,12 @@ def test_umulhi(dtype_str, device):
     y = numpy_random((N, ), dtype_str=dtype_str, rs=rs, low=0)
     y_tri = to_triton(y, device=device)
     z_tri = torch.zeros_like(x_tri)
-    kernel[(1, )](x_tri, y_tri, z_tri, N=N)
+    x_tri_txda = x_tri.to("txda")
+    y_tri_txda = y_tri.to("txda")
+    z_tri_txda = z_tri.to("txda")
+    kernel[(1, )](x_tri_txda, y_tri_txda, z_tri_txda, N=N)
+    with torch.no_grad():
+        z_tri.copy_(z_tri_txda.cpu())
 
     z_ref = umulhi32(x, y)
     np.testing.assert_equal(z_ref, to_numpy(z_tri))

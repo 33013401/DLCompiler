@@ -1,6 +1,7 @@
 """Integer precision modes and reciprocal correction on the real device."""
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -22,10 +23,16 @@ def test_integer_modes(device, mode, dtype):
     values = [7, -7, 14, -14, 15, -15, 0, 1]
     if mode:
         values[4:6] = [2**24 + 7, -(2**24 + 7)]
-    x = torch.tensor(values, dtype=dtype, device=device)
-    y = torch.tensor([7, 7, -7, -7, 7, 7, 7, 7], dtype=dtype, device=device)
+    x = torch.tensor(values, dtype=dtype, device="cpu")
+    y = torch.tensor([7, 7, -7, -7, 7, 7, 7, 7], dtype=dtype, device="cpu")
     outputs = [torch.empty_like(x) for _ in range(3)]
-    integer_math[(1,)](x, y, *outputs, 8, precision_mode=mode)
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    outputs_txda = [value.to("txda") for value in outputs]
+    integer_math[(1,)](x_txda, y_txda, *outputs_txda, 8, precision_mode=mode)
+    with torch.no_grad():
+        for host, native in zip(outputs, outputs_txda):
+            host.copy_(native.cpu())
     references = (x + y, torch.div(x, y, rounding_mode="trunc"), x - torch.div(x, y, rounding_mode="trunc") * y)
     for actual, expected in zip(outputs, references):
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)

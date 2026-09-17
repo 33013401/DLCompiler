@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import triton.experimental.tle.language as tle
@@ -97,39 +98,44 @@ def build_ring_luts(mesh, device):
 
 
 def run(m=M, n=N, k=K, device="cpu", pattern="random", seed=0):
-    """Execute through the Wafer example harness; the CRT ring has 16 members."""
+    """Execute with explicit torch_txda tensors; the CRT ring has 16 members."""
     if m <= 0 or n <= 0 or m % TILE_NUM or n % TILE_NUM or k <= 0:
         raise ValueError("M and N must be divisible by the 16-tile ring size")
     torch.manual_seed(seed)
     if pattern == "structured":
         # Exact FP16 values exercise tile/shard routing without reduction noise.
-        a = torch.zeros((m, k), device=device, dtype=torch.float16)
-        a[torch.arange(m, device=device), torch.arange(m, device=device) % k] = 1
-        rows = torch.arange(k, device=device)[:, None]
-        cols = torch.arange(n, device=device)[None, :]
+        a = torch.zeros((m, k), device="cpu", dtype=torch.float16)
+        a[torch.arange(m, device="cpu"), torch.arange(m, device="cpu") % k] = 1
+        rows = torch.arange(k, device="cpu")[:, None]
+        cols = torch.arange(n, device="cpu")[None, :]
         b = (((rows * 7 + cols * 11 + seed * 13) % 1024).float() / 1024).half()
     elif pattern == "random":
-        a = torch.randn((m, k), device=device, dtype=torch.float16)
-        b = torch.randn((k, n), device=device, dtype=torch.float16)
+        a = torch.randn((m, k), device="cpu", dtype=torch.float16)
+        b = torch.randn((k, n), device="cpu", dtype=torch.float16)
     else:
         raise ValueError(f"Unknown input pattern: {pattern}")
-    c = torch.full((m, n), float("nan"), device=device, dtype=torch.float16)
+    c = torch.full((m, n), float("nan"), device="cpu", dtype=torch.float16)
     send_next_lut, ring_index_lut = build_ring_luts(MESH, device)
     from triton.backends.dicp_triton.wafer_runtime import initialize_noc
     initialize_noc()
+    a_txda = a.to("txda")
+    b_txda = b.to("txda")
+    c_txda = c.to("txda")
+    send_next_lut_txda = send_next_lut.to("txda")
+    ring_index_lut_txda = ring_index_lut.to("txda")
     dsa_shift_n_gemm_kernel[(TILE_NUM,)](
-        a, b, c, send_next_lut, ring_index_lut,
+        a_txda, b_txda, c_txda, send_next_lut_txda, ring_index_lut_txda,
         M=m, N=n, K=k, BLOCK_M=m // TILE_NUM, BLOCK_K=k,
         SUB_N=n // TILE_NUM, TILE_NUM=TILE_NUM,
         launch_mode="cluster",
     )
+    with torch.no_grad():
+        c.copy_(c_txda.cpu())
     ref = a.cpu().float() @ b.cpu().float()
     result = c.cpu().float()
     tolerance = 0.0 if pattern == "structured" else 1e-1
     torch.testing.assert_close(result, ref, atol=tolerance, rtol=tolerance)
     max_diff = (result - ref).abs().max().item()
-    from _wafer_harness import record
-    record("numerical_pass", m=m, n=n, k=k, pattern=pattern, seed=seed, max_abs_diff=max_diff)
     print(f"PASS NoC ring GEMM: M={m}, N={n}, K={k}, tiles={TILE_NUM}, "
           f"pattern={pattern}, seed={seed}, max_abs_diff={max_diff:.8g}", flush=True)
 
@@ -143,5 +149,5 @@ def test_noc_gemm(m, n, k, pattern, device):
 
 if __name__ == "__main__":
     raise SystemExit("Run this example with scripts/run_wafer_example_suite.py "
-                     "--select tle/test_tle_dsa_noc_gemm_4096.py "
-                     "--output-dir /tmp/wafer-noc-results --execution hardware")
+                     "--suite examples --select tle/test_tle_dsa_noc_gemm_4096.py "
+                     "--output-dir /tmp/wafer-noc-results")

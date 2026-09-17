@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -16,7 +17,10 @@ def test_swizzle2d(size_i, size_j, size_g, device):
                 tl.store(output + new_i * size_j + new_j, i * size_j + j)
 
     output = torch.zeros(size_i, size_j).to(device)
-    swizzle2d_kernel[(1, )](output, size_i, size_j, size_g)
+    output_txda = output.to("txda")
+    swizzle2d_kernel[(1, )](output_txda, size_i, size_j, size_g)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     expected_order = torch.tensor([[0, 3, 6, 9, 12, 15, 18], [1, 4, 7, 10, 13, 16, 19], [2, 5, 8, 11, 14, 17, 20],
                                    [21, 23, 25, 27, 29, 31, 33], [22, 24, 26, 28, 30, 32, 34]]).to(device)
     assert (output == expected_order).all(), (output, expected_order)

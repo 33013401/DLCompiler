@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -24,8 +25,8 @@ def test_tensor_indices_nested_with_mask(device):
             out_offs += 4
 
     SIZE = 17
-    input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    input = torch.arange(0, SIZE, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
 
     if device == 'cpu':
         pass  # Wafer driver is selected by conftest.py.
@@ -33,9 +34,13 @@ def test_tensor_indices_nested_with_mask(device):
     grid = lambda meta: (1, )
 
     print(output)
-    addptr_with_masks[grid](input, output, 14)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    addptr_with_masks[grid](input_txda, output_txda, 14)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     expected_output = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -11, -11, -1], dtype=torch.int32,
-                                   device=device)
+                                   device="cpu")
     torch.testing.assert_close(output, expected_output)
     print(input)
     print(output)
@@ -61,8 +66,8 @@ def test_tensor_indices_nested(device):
                 out_offs += 4
 
     SIZE = 64
-    input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    input = torch.arange(0, SIZE, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
 
     if device == 'cpu':
         pass  # Wafer driver is selected by conftest.py.
@@ -70,12 +75,16 @@ def test_tensor_indices_nested(device):
     grid = lambda meta: (1, )
 
     print(output)
-    tensor_indices_nested[grid](input, output)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    tensor_indices_nested[grid](input_txda, output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     expected_output = torch.tensor([
         0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 21, 22, 23, 24, 27, 28, 29, 30, 31, 32, 33, 34, 38, 39, 40, 41, 48, 49,
         50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1
-    ], device=device, dtype=torch.int32)
+    ], device="cpu", dtype=torch.int32)
     torch.testing.assert_close(output, expected_output)
     print(input)
     print(output)
@@ -93,8 +102,8 @@ def test_integer_tensor(device):
             offs += 4
 
     SIZE = 8
-    input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    input = torch.arange(0, SIZE, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
 
     if device == 'cpu':
         pass  # Wafer driver is selected by conftest.py.
@@ -102,7 +111,10 @@ def test_integer_tensor(device):
     grid = lambda meta: (1, )
 
     print(output)
-    test_1[grid](output)
+    output_txda = output.to("txda")
+    test_1[grid](output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(input)
     print(output)
     torch.testing.assert_close(input, output)

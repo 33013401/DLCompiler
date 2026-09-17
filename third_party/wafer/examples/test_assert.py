@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import pytest
@@ -22,7 +23,7 @@ def kernel_device_assert_tensor(COND, n_elements, BLOCK: tl.constexpr):
 
 @pytest.mark.parametrize('cond', [True, False])
 def test_assert_scalar(cond, request):
-    if not cond and request.config.getoption("--wafer-execution") == "hardware":
+    if not cond and request.config.getoption("--wafer-hardware"):
         pytest.skip("False device assertions terminate through firmware __assert_func; compile coverage only on this shared card")
     kernel_device_assert_scalar[(1, )](cond, BLOCK=16, debug=True)
 
@@ -35,12 +36,13 @@ def test_assert_scalar(cond, request):
     [False],
 ])
 def test_assert_tensor(cond_list, request):
-    if not all(cond_list) and request.config.getoption("--wafer-execution") == "hardware":
+    if not all(cond_list) and request.config.getoption("--wafer-hardware"):
         pytest.skip("False device assertions terminate through firmware __assert_func; compile coverage only on this shared card")
-    cond_tensor = torch.tensor(cond_list, dtype=torch.bool, device=DEVICE)
+    cond_tensor = torch.tensor(cond_list, dtype=torch.bool, device="cpu")
     n_elements = cond_tensor.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK']), )
-    kernel_device_assert_tensor[grid](cond_tensor, n_elements, BLOCK=16, debug=True)
+    cond_tensor_txda = cond_tensor.to("txda")
+    kernel_device_assert_tensor[grid](cond_tensor_txda, n_elements, BLOCK=16, debug=True)
 
 
 def run_all_tests():

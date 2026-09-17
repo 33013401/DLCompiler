@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -45,12 +46,16 @@ def sqrt_triton(x):
     print("grid value is ", grid)
 
     # Launch the kernel
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
     sqrt_kernel[grid](
-        x,
-        output,
+        x_txda,
+        output_txda,
         n_elements,
         BLOCK_SIZE=1024,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     return output
 
@@ -60,7 +65,7 @@ def sqrt_triton(x):
 ])
 def test_sqrt(size, dtype, device="cpu"):
     # Generate random input data
-    x = torch.randn(size, device=device, dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
 
     # Call the Triton kernel
     output = sqrt_triton(x)

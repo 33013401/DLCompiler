@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -28,14 +29,19 @@ def swap_kernel(x_ptr,  # *Pointer* to first inout vector.
 def swap(x: torch.Tensor, y: torch.Tensor):
     n_elements = x.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta["BLOCK_SIZE"]), )
-    swap_kernel[grid](x, y, BLOCK_SIZE=1024)
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    swap_kernel[grid](x_txda, y_txda, BLOCK_SIZE=1024)
+    with torch.no_grad():
+        x.copy_(x_txda.cpu())
+        y.copy_(y_txda.cpu())
 
 
 def test(device):
     torch.manual_seed(0)
     size = 10240
-    x = torch.rand(size, device=device)
-    y = torch.rand(size, device=device)
+    x = torch.rand(size, device="cpu")
+    y = torch.rand(size, device="cpu")
     assert not torch.equal(x, y)
     x_ = x.clone()
     y_ = y.clone()

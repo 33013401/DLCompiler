@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -47,20 +48,24 @@ def kernel(
 def test(device):
     n_rows = 4
     n_cols = 2
-    x = torch.arange(0, n_rows * n_cols, 1, device=device, dtype=torch.float32).reshape([n_rows, n_cols])
-    output = torch.full([n_rows, n_cols], -1, device=device, dtype=x.dtype)
+    x = torch.arange(0, n_rows * n_cols, 1, device="cpu", dtype=torch.float32).reshape([n_rows, n_cols])
+    output = torch.full([n_rows, n_cols], -1, device="cpu", dtype=x.dtype)
     BLOCK_SIZE_ROW = n_rows
     BLOCK_SIZE_COL = n_cols
 
     grid = lambda meta: (n_cols, )
 
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
     kernel[grid](
-        x,
-        output,
+        x_txda,
+        output_txda,
         n_rows,
         n_cols,
         BLOCK_SIZE_ROW=BLOCK_SIZE_ROW,
         BLOCK_SIZE_COL=BLOCK_SIZE_COL,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     torch.testing.assert_close(output, x, rtol=0.001, atol=1e-5)

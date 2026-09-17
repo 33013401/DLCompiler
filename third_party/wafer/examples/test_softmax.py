@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -51,22 +52,26 @@ def softmax(x):
 
     x = x.to(DEVICE)
     y = y.to(DEVICE)
+    y_txda = y.to("txda")
+    x_txda = x.to("txda")
     softmax_kernel[(n_rows, )](
-        y,
-        x,
-        x.stride(0),
-        y.stride(0),
+        y_txda,
+        x_txda,
+        x_txda.stride(0),
+        y_txda.stride(0),
         n_cols,
         num_warps=num_warps,
         BLOCK_SIZE=BLOCK_SIZE,
     )
+    with torch.no_grad():
+        y.copy_(y_txda.cpu())
     y = y.to('cpu')
     return y
 
 
 def test_softmax(device):
     torch.manual_seed(0)
-    x = torch.randn(1823, 781, device=device)
+    x = torch.randn(1823, 781, device="cpu")
     y_triton = softmax(x)
     y_torch = torch.softmax(x, axis=1)
     assert torch.allclose(y_triton, y_torch), (y_triton, y_torch)
@@ -75,7 +80,7 @@ def test_softmax(device):
 @benchmark.measure()
 def bench_softmax(size, provider):
     torch.manual_seed(0)
-    x = torch.randn(size, size, device='cpu')
+    x = torch.randn(size, size, device="cpu")
     if provider == 'torch':
         torch.softmax(x, axis=1)
     if provider == 'triton':

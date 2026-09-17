@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import itertools
@@ -239,8 +240,13 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
             BLOCK_SIZE = 512
             grid = ((N + BLOCK_SIZE - 1) // BLOCK_SIZE, )
             comp_dtype = tl.float16 if comp_dtype == torch.float16 else tl.bfloat16
-            mxfp_upcast_kernel[grid](v, scale, v_upcast, scale.numel(), e_bits, m_bits, comp_dtype, BLOCK_SIZE,
+            v_txda = v.to("txda")
+            scale_txda = scale.to("txda")
+            v_upcast_txda = v_upcast.to("txda")
+            mxfp_upcast_kernel[grid](v_txda, scale_txda, v_upcast_txda, scale_txda.numel(), e_bits, m_bits, comp_dtype, BLOCK_SIZE,
                                      num_warps=num_warps)
+            with torch.no_grad():
+                v_upcast.copy_(v_upcast_txda.cpu())
 
             assert v_upcast.isfinite().all()
             if transposed:
@@ -276,7 +282,7 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
         if col_major:
             shape = shape[:-2] + (shape[-1], shape[-2])
         if ty == "bf16" or ty == "fp16":
-            ret = torch.randn(shape, dtype=comp_dtype, device=device)
+            ret = torch.randn(shape, dtype=comp_dtype, device="cpu")
             # Clamp to avoid relative error issues
             ret.clamp_(-2**comp_dtype_max_exp, 2**comp_dtype_max_exp - 1)
         else:
@@ -286,9 +292,9 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
                 # On MI350, we use the V_MFMA_*_F8F6F4 instructions to
                 # directly calculate matmul on F8F6F4 data. So we need
                 # to narrow down the range of input to avoid overflow.
-                ret = torch.randint(20, 40, shape, dtype=torch.uint8, device=device)
+                ret = torch.randint(20, 40, shape, dtype=torch.uint8, device="cpu")
             else:
-                ret = torch.randint(256, shape, dtype=torch.uint8, device=device)
+                ret = torch.randint(256, shape, dtype=torch.uint8, device="cpu")
         if col_major:
             ret = ret.mT
         return ret
@@ -302,8 +308,8 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
     y = make_arg((K // DIV_FACTOR_B, N), type_b, col_major=col_b)
 
     min_scale, max_scale = (0, 142) if comp_dtype == torch.bfloat16 else (124, 131)
-    scale_x = torch.randint(min_scale, max_scale + 1, (M, K // 32), dtype=torch.uint8, device=device)
-    scale_y = torch.randint(min_scale, max_scale + 1, (N, K // 32), dtype=torch.uint8, device=device)
+    scale_x = torch.randint(min_scale, max_scale + 1, (M, K // 32), dtype=torch.uint8, device="cpu")
+    scale_y = torch.randint(min_scale, max_scale + 1, (N, K // 32), dtype=torch.uint8, device="cpu")
     if rhs_scale:
         scale_x = None
     else:
@@ -317,7 +323,7 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
         if dtype == "e5m2" and comp_dtype == torch.float16:
             x = x & 0xB
         mask = 0x7C if dtype == "e5m2" else 0x7F
-        finite = torch.arange(x.numel(), device=device, dtype=torch.uint8).reshape_as(x) % mask
+        finite = torch.arange(x.numel(), device="cpu", dtype=torch.uint8).reshape_as(x) % mask
         x_finite = torch.where(x & mask == mask, finite | (0x80 & x), x)
         x.copy_(x_finite)
         return x
@@ -330,8 +336,15 @@ def test_scaled_dot(M, N, K, col_a, col_b, rhs_scale, mxfp_type, normal_type, nu
         kernel_kwargs["kpack"] = kpack
         kernel_kwargs["matrix_instr_nonkdim"] = mma
     z = x.new_empty((M, N), dtype=comp_dtype)
-    pgm = dot_scale_kernel[(1, )](x, *x.stride(), scale_x, y, *y.stride(), scale_y, z, M, N, K, type_a, type_b,
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    scale_x_txda = None if scale_x is None else scale_x.to("txda")
+    scale_y_txda = None if scale_y is None else scale_y.to("txda")
+    z_txda = z.to("txda")
+    pgm = dot_scale_kernel[(1, )](x_txda, *x_txda.stride(), scale_x_txda, y_txda, *y_txda.stride(), scale_y_txda, z_txda, M, N, K, type_a, type_b,
                                   **kernel_kwargs)
+    with torch.no_grad():
+        z.copy_(z_txda.cpu())
     z_ref = dot_scale_ref(x, scale_x, y, scale_y, type_a, type_b)
     # Bigger tolerance for AMD MI200 devices.
     # MI200 devices use reduced precision fp16 and bf16 and flush input and output denormal values

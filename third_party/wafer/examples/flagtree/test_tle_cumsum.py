@@ -58,7 +58,7 @@ def _cumsum_2d(x_ptr, out_ptr, M: tl.constexpr, N: tl.constexpr):
 
 def _exclusive_expected(x, dtype):
     cs = torch.cumsum(x, dim=0, dtype=dtype)
-    zero = torch.zeros(1, device=x.device, dtype=dtype)
+    zero = torch.zeros(1, device="cpu", dtype=dtype)
     return torch.cat([zero, cs[:-1]])
 
 
@@ -69,7 +69,13 @@ def test_cumsum_1d_masked():
 
     exclusive = torch.zeros(block, device="cpu", dtype=torch.float32)
     total = torch.zeros(1, device="cpu", dtype=torch.float32)
-    _cumsum_1d[(1, )](x, exclusive, total, n, BLOCK=block)
+    x_txda = x.to("txda")
+    exclusive_txda = exclusive.to("txda")
+    total_txda = total.to("txda")
+    _cumsum_1d[(1, )](x_txda, exclusive_txda, total_txda, n, BLOCK=block)
+    with torch.no_grad():
+        exclusive.copy_(exclusive_txda.cpu())
+        total.copy_(total_txda.cpu())
 
     expected = _exclusive_expected(x, torch.float32)
     torch.testing.assert_close(exclusive[:n], expected)
@@ -83,7 +89,13 @@ def test_cumsum_1d_full_block():
 
     exclusive = torch.zeros(n, device="cpu", dtype=torch.float32)
     total = torch.zeros(1, device="cpu", dtype=torch.float32)
-    _cumsum_1d[(1, )](x, exclusive, total, n, BLOCK=n)
+    x_txda = x.to("txda")
+    exclusive_txda = exclusive.to("txda")
+    total_txda = total.to("txda")
+    _cumsum_1d[(1, )](x_txda, exclusive_txda, total_txda, n, BLOCK=n)
+    with torch.no_grad():
+        exclusive.copy_(exclusive_txda.cpu())
+        total.copy_(total_txda.cpu())
 
     expected = _exclusive_expected(x, torch.float32)
     torch.testing.assert_close(exclusive, expected, atol=2e-6, rtol=1e-5)
@@ -97,7 +109,11 @@ def test_cumsum_2d_unsupported():
     x = torch.randn(m, n, device="cpu", dtype=torch.float32)
     out = torch.zeros(m, n, device="cpu", dtype=torch.float32)
     with pytest.raises(Exception):
-        _cumsum_2d[(1, )](x, out, M=m, N=n)
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        _cumsum_2d[(1, )](x_txda, out_txda, M=m, N=n)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
 
 
 def test_cumsum_reverse_unsupported():
@@ -106,7 +122,13 @@ def test_cumsum_reverse_unsupported():
     exclusive = torch.zeros(64, device="cpu", dtype=torch.float32)
     total = torch.zeros(1, device="cpu", dtype=torch.float32)
     with pytest.raises(Exception):
-        _cumsum_1d_reverse[(1, )](x, exclusive, total, 64, BLOCK=64)
+        x_txda = x.to("txda")
+        exclusive_txda = exclusive.to("txda")
+        total_txda = total.to("txda")
+        _cumsum_1d_reverse[(1, )](x_txda, exclusive_txda, total_txda, 64, BLOCK=64)
+        with torch.no_grad():
+            exclusive.copy_(exclusive_txda.cpu())
+            total.copy_(total_txda.cpu())
 
 
 if __name__ == "__main__":

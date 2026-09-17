@@ -2,6 +2,7 @@
 import math
 
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 from triton.testing import do_bench
@@ -24,10 +25,15 @@ def test_autotune_vector(device):
         value = tl.load(X + offset, offset < N, other=0) + tl.load(Y + offset, offset < N, other=0)
         tl.store(Out + offset, value, offset < N)
 
-    x = torch.arange(257, dtype=torch.float32, device=device)
+    x = torch.arange(257, dtype=torch.float32, device="cpu")
     y = torch.full_like(x, 1.25)
     out = torch.empty_like(x)
-    add_kernel[lambda meta: (triton.cdiv(x.numel(), meta['BLOCK']),)](x, y, out, N=x.numel())
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    out_txda = out.to("txda")
+    add_kernel[lambda meta: (triton.cdiv(x_txda.numel(), meta['BLOCK']),)](x_txda, y_txda, out_txda, N=x_txda.numel())
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
     assert len(measured) == 2
     assert add_kernel.best_config.kwargs['BLOCK'] in (64, 128)
     torch.testing.assert_close(out, x + y)

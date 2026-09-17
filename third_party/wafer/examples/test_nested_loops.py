@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 from triton.backends.compiler import GPUTarget
@@ -263,17 +264,21 @@ def test_nested3():
          [
              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-         ]], dtype=torch.int32, device='cpu')
+         ]], dtype=torch.int32, device="cpu")
     pass  # Wafer driver is selected by conftest.py.
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
-    output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
+    output = torch.zeros([n_rows, n_cols], device="cpu", dtype=x.dtype)
     grid = lambda meta: (n_cols // 4, )
 
     print('before:')
     print(x)
     print(output)
 
-    nested3[grid](x, output, x.stride(0), x.stride(1))
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    nested3[grid](x_txda, output_txda, x_txda.stride(0), x_txda.stride(1))
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(output)
     torch.testing.assert_close(output, expected, rtol=0.001, atol=1e-5)
     print("Pass!")
@@ -295,18 +300,22 @@ def test_nested2_use_loop_results():
          [32, 33, 0, 0, 36, 37, 0, 0, 40, 41, 0, 0, 44, 45, 0, 0, 48, 49, 0, 0, 52, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
          [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
          [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
-        device='cpu', dtype=torch.int32)
+        device="cpu", dtype=torch.int32)
     # x = torch.arange(0, n_rows * n_cols, device="cuda", dtype=torch.int32).reshape([n_rows, n_cols])
     pass  # Wafer driver is selected by conftest.py.
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
-    output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
+    output = torch.zeros([n_rows, n_cols], device="cpu", dtype=x.dtype)
     grid = lambda meta: (n_cols // 4, )
 
     print('before:')
     print(x)
     print(output)
 
-    nested2_use_loop_results[grid](x, output, x.stride(0), x.stride(1))
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    nested2_use_loop_results[grid](x_txda, output_txda, x_txda.stride(0), x_txda.stride(1))
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(output)
     torch.testing.assert_close(output, expected, rtol=0.001, atol=1e-5)
     print("Pass!")
@@ -325,17 +334,21 @@ def test_nested2_complex_body():
     n_cols = 8
     grid = lambda meta: (n_cols // 4, )
     expected = torch.tensor([[0, 1, 2, 0, 4, 5, 0, 0], [0, 9, 10, 0, 12, 13, 0, 0], [0, 0, 18, 19, 0, 21, 22, 0],
-                             [0, 0, 26, 27, 0, 29, 30, 0]], device='cpu', dtype=torch.int32)
+                             [0, 0, 26, 27, 0, 29, 30, 0]], device="cpu", dtype=torch.int32)
 
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
     pass  # Wafer driver is selected by conftest.py.
-    output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
+    output = torch.zeros([n_rows, n_cols], device="cpu", dtype=x.dtype)
 
     print('before:')
     print(x)
     print(output)
 
-    nested2_complex_body[grid](x, output, x.stride(0), x.stride(1))
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    nested2_complex_body[grid](x_txda, output_txda, x_txda.stride(0), x_txda.stride(1))
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(output)
     torch.testing.assert_close(output, expected, rtol=0.001, atol=1e-5)
     print("Pass!")
@@ -358,17 +371,21 @@ def test_nested2_use_same_level_loop_result():
     ], [36, 37, 0, 0, 38, 39, 40, 41, 0, 0, 42, 43, 50, 51, 0, 0, 52, 53, 54, 55, 0, 0, 56, 57, 0, 0, 0, 0, 0, 0, 0, 0
         ], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
-                            device='cpu', dtype=torch.int32)
+                            device="cpu", dtype=torch.int32)
 
     x = torch.arange(0, n_rows * n_cols, device="cpu", dtype=torch.int32).reshape([n_rows, n_cols])
     pass  # Wafer driver is selected by conftest.py.
-    output = torch.zeros([n_rows, n_cols], device=x.device, dtype=x.dtype)
+    output = torch.zeros([n_rows, n_cols], device="cpu", dtype=x.dtype)
 
     print('before:')
     print(x)
     print(output)
 
-    nested_use_same_level_loop_results[grid](x, output, x.stride(0), x.stride(1))
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    nested_use_same_level_loop_results[grid](x_txda, output_txda, x_txda.stride(0), x_txda.stride(1))
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(output)
     torch.testing.assert_close(output, expected, rtol=0.001, atol=1e-5)
     print("Pass!")

@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -49,14 +50,20 @@ def fma_triton(x, y, z):
     print("grid value is ", grid)
 
     # Launch the kernel
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    z_txda = z.to("txda")
+    output_txda = output.to("txda")
     fma_kernel[grid](
-        x,
-        y,
-        z,
-        output,
+        x_txda,
+        y_txda,
+        z_txda,
+        output_txda,
         n_elements,
         BLOCK_SIZE=1024,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     return output
 
@@ -66,9 +73,9 @@ def fma_triton(x, y, z):
 ])
 def test_fma(size, dtype, device="cpu"):
     # Generate random input data
-    x = torch.randn(size, device=device, dtype=dtype)
-    y = torch.randn(size, device=device, dtype=dtype)
-    z = torch.randn(size, device=device, dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
+    y = torch.randn(size, device="cpu", dtype=dtype)
+    z = torch.randn(size, device="cpu", dtype=dtype)
 
     # Call the Triton implementation
     output = fma_triton(x, y, z)

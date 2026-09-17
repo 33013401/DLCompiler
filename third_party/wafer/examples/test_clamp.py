@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -47,14 +48,18 @@ def clamp_triton(x, min_val, max_val):
     print("grid value is ", grid)
 
     # Launch the kernel
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
     clamp_kernel[grid](
-        x,
-        output,
+        x_txda,
+        output_txda,
         min_val,
         max_val,
         n_elements,
         BLOCK_SIZE=1024,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     return output
 
@@ -64,7 +69,7 @@ def clamp_triton(x, min_val, max_val):
 ])
 def test_clamp(size, dtype, device="cpu"):
     # Generate random input data
-    x = torch.randn(size, device=device, dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
     min_val = -1.0
     max_val = 1.0
 

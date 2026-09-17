@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -26,16 +27,19 @@ def test(device):
     n_cols = 512
     fill_value = 123.456
     expected_result = torch.full((n_rows, n_cols), fill_value, dtype=torch.float32)
-    output = torch.empty([n_rows, n_cols], device=device, dtype=expected_result.dtype)
+    output = torch.empty([n_rows, n_cols], device="cpu", dtype=expected_result.dtype)
     grid = lambda meta: (n_rows // 2, )
 
+    output_txda = output.to("txda")
     splat[grid](
         fill_value,
-        output,
-        output.stride(0),
-        output.stride(1),
+        output_txda,
+        output_txda.stride(0),
+        output_txda.stride(1),
         BLOCK_SIZE_ROW=n_rows,
         BLOCK_SIZE_COL=n_cols,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     torch.testing.assert_close(output, expected_result, rtol=0.001, atol=1e-5)

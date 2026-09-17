@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -24,15 +25,19 @@ def test_wrap_stacked(device):
 
     M = 4
     N = 8
-    A = torch.arange(0, M * N, device=device, dtype=torch.float32).reshape((M, N))
-    out = torch.full((M, N), 88888, device=device, dtype=torch.float32)
+    A = torch.arange(0, M * N, device="cpu", dtype=torch.float32).reshape((M, N))
+    out = torch.full((M, N), 88888, device="cpu", dtype=torch.float32)
     grid = lambda meta: (1, )
 
-    wrap_stacked[grid](A, out, M, N, A.stride(0), A.stride(1), out.stride(0), out.stride(1), BLOCK_SIZE_K=4)
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    wrap_stacked[grid](A_txda, out_txda, M, N, A_txda.stride(0), A_txda.stride(1), out_txda.stride(0), out_txda.stride(1), BLOCK_SIZE_K=4)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor([[16, 17, 18, 19, 20, 21, 22, 23], [24, 25, 26, 27, 28, 29, 30, 31],
-                                 [0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15]], device=device)
+                                 [0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15]], device="cpu")
 
     assert torch.equal(expected_out.int(), out.int())
 
@@ -53,11 +58,15 @@ def test_1d(device):
 
     M = 8
     N = 8
-    A = torch.arange(0, M * N, device=device, dtype=torch.float32).reshape((M, N))
-    out = torch.full((M, N), 88888, device=device, dtype=torch.float32)
+    A = torch.arange(0, M * N, device="cpu", dtype=torch.float32).reshape((M, N))
+    out = torch.full((M, N), 88888, device="cpu", dtype=torch.float32)
     grid = lambda meta: (1, )
 
-    mod_1d[grid](A, out, M, N, A.stride(0), A.stride(1), out.stride(0), out.stride(1), BLOCK_SIZE_K=4)
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    mod_1d[grid](A_txda, out_txda, M, N, A_txda.stride(0), A_txda.stride(1), out_txda.stride(0), out_txda.stride(1), BLOCK_SIZE_K=4)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor(
@@ -67,7 +76,7 @@ def test_1d(device):
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
-         [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888]], device=device)
+         [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888]], device="cpu")
 
     assert torch.equal(expected_out.int(), out.int())
 
@@ -89,11 +98,15 @@ def test_2d(device):
 
     M = 8
     N = 8
-    A = torch.arange(0, M * N, device=device, dtype=torch.float32).reshape((M, N))
-    out = torch.full((M, N), 88888, device=device, dtype=torch.float32)
+    A = torch.arange(0, M * N, device="cpu", dtype=torch.float32).reshape((M, N))
+    out = torch.full((M, N), 88888, device="cpu", dtype=torch.float32)
     grid = lambda meta: (1, )
 
-    mod_2d[grid](A, out, M, N, A.stride(0), A.stride(1), out.stride(0), out.stride(1), BLOCK_SIZE_K=4)
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    mod_2d[grid](A_txda, out_txda, M, N, A_txda.stride(0), A_txda.stride(1), out_txda.stride(0), out_txda.stride(1), BLOCK_SIZE_K=4)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor(
@@ -102,7 +115,7 @@ def test_2d(device):
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
          [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888],
-         [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888]], device=device)
+         [88888, 88888, 88888, 88888, 88888, 88888, 88888, 88888]], device="cpu")
 
     assert torch.equal(expected_out.int(), out.int())
 
@@ -130,13 +143,17 @@ def test_side_by_side_masked_loop(device):
 
     M = 12
     N = 8
-    A = torch.arange(0, M * N, device=device, dtype=torch.float32).reshape((M, N))
-    out = torch.full((M, N), 88888, device=device, dtype=torch.float32)
+    A = torch.arange(0, M * N, device="cpu", dtype=torch.float32).reshape((M, N))
+    out = torch.full((M, N), 88888, device="cpu", dtype=torch.float32)
     print(out)
     grid = lambda meta: (1, )
 
-    wrap_side_by_side_masked_loop[grid](A, out, M, N, A.stride(0), A.stride(1), out.stride(0), out.stride(1),
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    wrap_side_by_side_masked_loop[grid](A_txda, out_txda, M, N, A_txda.stride(0), A_txda.stride(1), out_txda.stride(0), out_txda.stride(1),
                                         BLOCK_SIZE_K=4)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor(
@@ -178,12 +195,16 @@ def test_stacked_masked_loop(device):
     N = 12
     BLOCK_SIZE_M = 4
     BLOCK_SIZE_N = 4
-    A = torch.arange(0, M * N, device=device, dtype=torch.float32).reshape((M, N))
-    out = torch.full((BLOCK_SIZE_M, N), 88888, device=device, dtype=torch.float32)
+    A = torch.arange(0, M * N, device="cpu", dtype=torch.float32).reshape((M, N))
+    out = torch.full((BLOCK_SIZE_M, N), 88888, device="cpu", dtype=torch.float32)
     print(out)
     grid = lambda meta: (1, )
 
-    wrap_stacked_masked_loop[grid](A, out, M, N, A.stride(0), A.stride(1), out.stride(0), out.stride(1), BLOCK_SIZE_K=4)
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    wrap_stacked_masked_loop[grid](A_txda, out_txda, M, N, A_txda.stride(0), A_txda.stride(1), out_txda.stride(0), out_txda.stride(1), BLOCK_SIZE_K=4)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor([
@@ -272,11 +293,15 @@ def test_torch_inductor_pattern():
 
     XBLOCK = 4
     RBLOCK = 64
-    A = torch.arange(0, xnumel * rnumel, device=device, dtype=torch.int32).reshape((xnumel, rnumel))
-    out = torch.full((XBLOCK, RBLOCK), 88888, device=device, dtype=torch.int32)
+    A = torch.arange(0, xnumel * rnumel, device="cpu", dtype=torch.int32).reshape((xnumel, rnumel))
+    out = torch.full((XBLOCK, RBLOCK), 88888, device="cpu", dtype=torch.int32)
     grid = lambda meta: (1, )
 
-    triton_[grid](A, out, rnumel, XBLOCK=XBLOCK, RBLOCK=RBLOCK)
+    A_txda = A.to("txda")
+    out_txda = out.to("txda")
+    triton_[grid](A_txda, out_txda, rnumel, XBLOCK=XBLOCK, RBLOCK=RBLOCK)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     # Expected output copied from running triton on NVDIA gpu
     expected_out = torch.tensor(
@@ -299,6 +324,6 @@ def test_torch_inductor_pattern():
              77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77,
              77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77,
              77, 77, 77, 77, 77, 77, 77, 77, 77, 77
-         ]], device=device, dtype=torch.int32)
+         ]], device="cpu", dtype=torch.int32)
 
     assert torch.equal(expected_out.int(), out.int())

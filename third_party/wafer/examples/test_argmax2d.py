@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import pytest
@@ -33,11 +34,15 @@ def argmax_kernel_2d(
 @pytest.mark.parametrize("N", [16, 32, 64])
 def test_argmax(N, device):
     # Set input size
-    x = torch.rand([N, N], device=device, dtype=torch.float32)
-    output = torch.empty([N], device=device, dtype=torch.int32)
+    x = torch.rand([N, N], device="cpu", dtype=torch.float32)
+    output = torch.empty([N], device="cpu", dtype=torch.int32)
 
     # Run kernel
-    argmax_kernel_2d[(1, )](x, output, N, BLOCK_SIZE=N)
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    argmax_kernel_2d[(1, )](x_txda, output_txda, N, BLOCK_SIZE=N)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     # Calculate reference result and verify
     ans = torch.argmax(x, dim=1).to(torch.int32)

@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -30,11 +31,15 @@ def test_return_case(device):
         pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 8
-    input = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    input = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
     grid = lambda meta: (1, )
     print(output)
-    early_return[grid](input, output)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    early_return[grid](input_txda, output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(input)
     print(output)
     torch.testing.assert_close(torch.tensor([-1, -1, -1, -1, -1, -1, -1, -1], dtype=torch.int32), output)
@@ -45,11 +50,15 @@ def test_normal_case(device):
         pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 8
-    input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    input = torch.arange(0, SIZE, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
     grid = lambda meta: (1, )
     print(output)
-    early_return[grid](input, output)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    early_return[grid](input_txda, output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(input)
     print(output)
     torch.testing.assert_close(torch.tensor([1, 2, 3, 4, -1, -1, -1, -1], dtype=torch.int32), output)

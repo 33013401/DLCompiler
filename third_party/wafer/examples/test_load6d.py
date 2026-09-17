@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import pytest
@@ -51,7 +52,7 @@ def six_dim_load(T_ptr, output_ptr, B, C, D1, D2, D3, D4, stride_b, stride_c, st
 @pytest.mark.parametrize("N", [2, 4])
 def test_triton_six_dim_load(N: int):
     shape = (N, N, N, N, N, N)
-    input = torch.arange(0, N**6, device='cpu', dtype=torch.float32).reshape(shape).contiguous()
+    input = torch.arange(0, N**6, device="cpu", dtype=torch.float32).reshape(shape).contiguous()
 
     B, C, D1, D2, D3, D4 = input.shape
     output = torch.empty_like(input)
@@ -60,8 +61,12 @@ def test_triton_six_dim_load(N: int):
     stride_b, stride_c, stride_d1, stride_d2, stride_d3, stride_d4 = strides[0], strides[1], strides[2], strides[
         3], strides[4], strides[5]
 
-    six_dim_load[(1, )](input, output, B, C, D1, D2, D3, D4, stride_b, stride_c, stride_d1, stride_d2, stride_d3,
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    six_dim_load[(1, )](input_txda, output_txda, B, C, D1, D2, D3, D4, stride_b, stride_c, stride_d1, stride_d2, stride_d3,
                         stride_d4, N=N)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     torch.testing.assert_close(input, output, rtol=0, atol=0)
 

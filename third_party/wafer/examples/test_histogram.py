@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -21,13 +22,17 @@ def test_histogram(M, N, device):
         tl.store(z_ptr + offset2, z)
 
     torch.manual_seed(17)
-    x = torch.randint(0, N, (M, ), device=device, dtype=torch.int32)
-    z = torch.empty(N, dtype=torch.int32, device=device)
+    x = torch.randint(0, N, (M, ), device="cpu", dtype=torch.int32)
+    z = torch.empty(N, dtype=torch.int32, device="cpu")
     # torch.histc does not work when the input type is not float and the device is CPU
     # https://github.com/pytorch/pytorch/issues/74236
     # This is a workload by converting the input to float
     z_torch = torch.histc(x.float(), bins=N, min=0, max=N - 1)
-    histogram_kernel[(1, )](x, z, M=M, N=N)
+    x_txda = x.to("txda")
+    z_txda = z.to("txda")
+    histogram_kernel[(1, )](x_txda, z_txda, M=M, N=N)
+    with torch.no_grad():
+        z.copy_(z_txda.cpu())
     assert (z_torch == z).all()
 
 

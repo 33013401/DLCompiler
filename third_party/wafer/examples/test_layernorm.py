@@ -19,6 +19,7 @@
 # Let’s first take a look at the forward pass implementation.
 
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -87,8 +88,8 @@ class LayerNorm(torch.autograd.Function):
         # reshape input data into 2D tensor
         x_arg = x.reshape(-1, x.shape[-1])
         M, N = x_arg.shape
-        mean = torch.empty((M, ), dtype=torch.float32, device=device)
-        rstd = torch.empty((M, ), dtype=torch.float32, device=device)
+        mean = torch.empty((M, ), dtype=torch.float32, device="cpu")
+        rstd = torch.empty((M, ), dtype=torch.float32, device="cpu")
         # Less than 64KB per feature: enqueue fused kernel
         MAX_FUSED_SIZE = 65536 // x.element_size()
         BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(N))
@@ -109,10 +110,20 @@ class LayerNorm(torch.autograd.Function):
         #     x_arg.stride(0), N, eps,  #
         #     BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps, num_ctas=1)
 
+        x_arg_dev_txda = x_arg_dev.to("txda")
+        y_dev_txda = y_dev.to("txda")
+        weight_dev_txda = weight_dev.to("txda")
+        bias_dev_txda = bias_dev.to("txda")
+        mean_dev_txda = mean_dev.to("txda")
+        rstd_dev_txda = rstd_dev.to("txda")
         _layer_norm_fwd_fused[(M, )](  #
-            x_arg_dev, y_dev, weight_dev, bias_dev, mean_dev, rstd_dev,  #
+            x_arg_dev_txda, y_dev_txda, weight_dev_txda, bias_dev_txda, mean_dev_txda, rstd_dev_txda,  #
             x_arg.stride(0), N, eps,  #
             BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps, num_ctas=1)
+        with torch.no_grad():
+            y_dev.copy_(y_dev_txda.cpu())
+            mean_dev.copy_(mean_dev_txda.cpu())
+            rstd_dev.copy_(rstd_dev_txda.cpu())
         x = x_arg_dev.to("cpu")
         y = y_dev.to("cpu")
 
@@ -131,9 +142,9 @@ def test_layer_norm(M, N, dtype, eps, device):
     # create data
     x_shape = (M, N)
     w_shape = (x_shape[-1], )
-    weight = torch.rand(w_shape, dtype=dtype, device=device, requires_grad=False)
-    bias = torch.rand(w_shape, dtype=dtype, device=device, requires_grad=False)
-    x = -2.3 + 0.5 * torch.randn(x_shape, dtype=dtype, device=device)
+    weight = torch.rand(w_shape, dtype=dtype, device="cpu", requires_grad=False)
+    bias = torch.rand(w_shape, dtype=dtype, device="cpu", requires_grad=False)
+    x = -2.3 + 0.5 * torch.randn(x_shape, dtype=dtype, device="cpu")
     dy = .1 * torch.randn_like(x)
     x.requires_grad_(False)
 
@@ -158,9 +169,9 @@ def bench_layernorm(size, provider):
     dtype = torch.float32
     x_shape = (size, size)
     w_shape = (x_shape[-1], )
-    weight = torch.rand(w_shape, dtype=dtype, device=device, requires_grad=False)
-    bias = torch.rand(w_shape, dtype=dtype, device=device, requires_grad=False)
-    x = -2.3 + 0.5 * torch.randn(x_shape, dtype=dtype, device=device)
+    weight = torch.rand(w_shape, dtype=dtype, device="cpu", requires_grad=False)
+    bias = torch.rand(w_shape, dtype=dtype, device="cpu", requires_grad=False)
+    x = -2.3 + 0.5 * torch.randn(x_shape, dtype=dtype, device="cpu")
     dy = .1 * torch.randn_like(x)
     x.requires_grad_(False)
     # forward pass

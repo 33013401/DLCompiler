@@ -3,6 +3,7 @@
 
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import benchmark
@@ -29,14 +30,20 @@ def bare_matmul_acc(X, Y, Z, C, M, N, K, BLOCK_SIZE: tl.constexpr):
 def bench_matmul(N, provider):
     device = 'cpu'
     dtype = torch.float32
-    a = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    b = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    c = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    z = torch.empty((N, N), device=device, dtype=dtype)
+    a = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    b = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    c = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    z = torch.empty((N, N), device="cpu", dtype=dtype)
     if provider == 'torch' or provider == 'test':
         z_ref = torch.matmul(a, b) + c
     if provider == 'triton' or provider == 'test':
-        bare_matmul_acc[(1, )](a, b, z, c, N, N, N, N)
+        a_txda = a.to("txda")
+        b_txda = b.to("txda")
+        z_txda = z.to("txda")
+        c_txda = c.to("txda")
+        bare_matmul_acc[(1, )](a_txda, b_txda, z_txda, c_txda, N, N, N, N)
+        with torch.no_grad():
+            z.copy_(z_txda.cpu())
         if provider == 'test':
             torch.testing.assert_close(z, z_ref, atol=1e-2, rtol=0)
 
@@ -45,11 +52,17 @@ def bench_matmul(N, provider):
     (N, dtype) for N in [64, 128, 256] for dtype in [torch.float32]
 ])
 def test_bare_matmul_acc(N, dtype, device='cpu'):
-    a = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    b = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    c = torch.randint(0, 100, (N, N), device=device, dtype=dtype)
-    z = torch.empty((N, N), device=device, dtype=dtype)
-    bare_matmul_acc[(1, )](a, b, z, c, N, N, N, N)
+    a = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    b = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    c = torch.randint(0, 100, (N, N), device="cpu", dtype=dtype)
+    z = torch.empty((N, N), device="cpu", dtype=dtype)
+    a_txda = a.to("txda")
+    b_txda = b.to("txda")
+    z_txda = z.to("txda")
+    c_txda = c.to("txda")
+    bare_matmul_acc[(1, )](a_txda, b_txda, z_txda, c_txda, N, N, N, N)
+    with torch.no_grad():
+        z.copy_(z_txda.cpu())
     z_ref = torch.matmul(a, b) + c
 
     # compare

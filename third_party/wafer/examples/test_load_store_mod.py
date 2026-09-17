@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -50,18 +51,26 @@ def test(device, BLOCK_SIZE):
     C = 16
     B = 4
     M = B * C
-    weight = torch.randn(size=(C, ), dtype=torch.float32, device=device, requires_grad=True)
-    output = torch.full([B, C], -1, device=device, dtype=torch.float32)
+    weight = torch.randn(size=(C, ), dtype=torch.float32, device="cpu", requires_grad=True)
+    output = torch.full([B, C], -1, device="cpu", dtype=torch.float32)
 
-    indices = torch.arange(M, device=device) % C
+    indices = torch.arange(M, device="cpu") % C
     torch_output = weight[indices].view(B, C)
 
     grid = lambda meta: (triton.cdiv(M, BLOCK_SIZE), )
-    stacked_load_2d_kernel[grid](weight, output, M, C, BLOCK_SIZE)
+    weight_txda = weight.to("txda")
+    output_txda = output.to("txda")
+    stacked_load_2d_kernel[grid](weight_txda, output_txda, M, C, BLOCK_SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     torch.testing.assert_close(output, torch_output, rtol=0.001, atol=1e-5)
 
-    sidebyside_load_2d_kernel[grid](weight, output, M, C, BLOCK_SIZE)
+    sidebyside_load_2d_kernel[grid](weight_txda, output_txda, M, C, BLOCK_SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     torch.testing.assert_close(output, torch_output, rtol=0.001, atol=1e-5)
 
-    sidebyside_load_1d_kernel[grid](weight, output, M, C, BLOCK_SIZE)
+    sidebyside_load_1d_kernel[grid](weight_txda, output_txda, M, C, BLOCK_SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     torch.testing.assert_close(output, torch_output, rtol=0.001, atol=1e-5)

@@ -70,7 +70,12 @@ class TestTLEDsaBridge:
         out = torch.empty_like(a)
 
         grid = (triton.cdiv(m, bm), triton.cdiv(n, bn), triton.cdiv(p, bp))
-        to_buffer_to_tensor_kernel[grid](a, b, out, m, n, p, q, BM=bm, BN=bn, BP=bp, BQ=bq, num_ctas=1)
+        a_txda = a.to("txda")
+        b_txda = b.to("txda")
+        out_txda = out.to("txda")
+        to_buffer_to_tensor_kernel[grid](a_txda, b_txda, out_txda, m, n, p, q, BM=bm, BN=bn, BP=bp, BQ=bq, num_ctas=1)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
 
         torch.testing.assert_close(out, a * b, atol=1e-4, rtol=1e-4)
 

@@ -156,7 +156,11 @@ class TestTile:
 
         # LIN=15 == linear id of [1,1,1,1]
         out = torch.zeros(*TILE, device="cpu", dtype=torch.float32)
-        extract_scalar[(1, )](x, out, TILE_SRC, TILE, 15)
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        extract_scalar[(1, )](x_txda, out_txda, TILE_SRC, TILE, 15)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[16:32, 16:32, 16:32, 8:16])
 
     def test_extract_dyn_multi(self):
@@ -165,7 +169,11 @@ class TestTile:
 
         # mixed: dims 0,1 dynamic, dims 2,3 static
         out = torch.zeros(*TILE, device="cpu", dtype=torch.float32)
-        extract_dyn_multi[(1, )](x, out, TILE_SRC, TILE, 1, 1, 0, 0)
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        extract_dyn_multi[(1, )](x_txda, out_txda, TILE_SRC, TILE, 1, 1, 0, 0)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[16:32, 16:32, 0:16, 0:8])
 
     def test_insert_multi(self):
@@ -175,14 +183,22 @@ class TestTile:
 
         # identity: extract [0,0,0,0], +1.0, insert back at [0,0,0,0]
         out = torch.zeros(*shape, device="cpu", dtype=torch.float32)
-        insert_multi[(1, )](x, out, shape, tile, 0, 0, 0, 0, 0, 0, 0, 0)
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        insert_multi[(1, )](x_txda, out_txda, shape, tile, 0, 0, 0, 0, 0, 0, 0, 0)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[0:8, 0:8, 0:8, 0:8] += 1.0
         torch.testing.assert_close(out, expected)
 
         # relocate: extract [1,1,1,1], +1.0, insert at [0,0,0,0]
         out = torch.zeros(*shape, device="cpu", dtype=torch.float32)
-        insert_multi[(1, )](x, out, shape, tile, 1, 1, 1, 1, 0, 0, 0, 0)
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        insert_multi[(1, )](x_txda, out_txda, shape, tile, 1, 1, 1, 1, 0, 0, 0, 0)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[0:8, 0:8, 0:8, 0:8] = x[8:16, 8:16, 8:16, 8:16] + 1.0
         torch.testing.assert_close(out, expected)
@@ -192,7 +208,11 @@ class TestTile:
         shape, tile = (16, 16, 16, 16), (8, 8, 8, 8)
         x2 = torch.randn(*shape, device="cpu", dtype=torch.float32)
         out = torch.zeros(*shape, device="cpu", dtype=torch.float32)
-        insert_oop[(1, )](x2, out, shape, tile, 1, 1, 1, 1)
+        x2_txda = x2.to("txda")
+        out_txda = out.to("txda")
+        insert_oop[(1, )](x2_txda, out_txda, shape, tile, 1, 1, 1, 1)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         src = x2[0:8, 0:8, 0:8, 0:8]
         expected = x2.clone()
         expected[8:16, 8:16, 8:16, 8:16] = src + 1.0
@@ -208,7 +228,13 @@ class TestTile:
         idx_src = torch.tensor(5, device="cpu", dtype=torch.int32)
         idx_dst = torch.tensor(10, device="cpu", dtype=torch.int32)
         out = torch.zeros(*shape, device="cpu", dtype=torch.float32)
-        insert_dyn_scalar[(1, )](x, idx_src, idx_dst, out, shape, tile)
+        x_txda = x.to("txda")
+        idx_src_txda = idx_src.to("txda")
+        idx_dst_txda = idx_dst.to("txda")
+        out_txda = out.to("txda")
+        insert_dyn_scalar[(1, )](x_txda, idx_src_txda, idx_dst_txda, out_txda, shape, tile)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[8:16, 0:8, 8:16, 0:8] = x[0:8, 8:16, 0:8, 8:16] + 1.0
         torch.testing.assert_close(out, expected)
@@ -222,12 +248,20 @@ class TestSlice:
 
         # stride 1
         out = torch.zeros(8, 8, 8, 8, device="cpu", dtype=torch.float32)
-        extract_static[(1, )](x, out, SLICE, (4, 4, 4, 4), (8, 8, 8, 8), (1, 1, 1, 1))
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        extract_static[(1, )](x_txda, out_txda, SLICE, (4, 4, 4, 4), (8, 8, 8, 8), (1, 1, 1, 1))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[4:12, 4:12, 4:12, 4:12])
 
         # stride 2
         out = torch.zeros(8, 8, 8, 8, device="cpu", dtype=torch.float32)
-        extract_static[(1, )](x, out, SLICE, (0, 0, 0, 0), (8, 8, 8, 8), (2, 2, 2, 2))
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        extract_static[(1, )](x_txda, out_txda, SLICE, (0, 0, 0, 0), (8, 8, 8, 8), (2, 2, 2, 2))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[0:16:2, 0:16:2, 0:16:2, 0:16:2])
 
     def test_extract_dyn(self):
@@ -238,12 +272,23 @@ class TestSlice:
 
         # all-dynamic offsets on dims 0,1
         out = torch.zeros(8, 8, 8, 8, device="cpu", dtype=torch.float32)
-        extract_dyn[(1, )](x, o0, o1, out, SLICE, (8, 8, 8, 8))
+        x_txda = x.to("txda")
+        o0_txda = o0.to("txda")
+        o1_txda = o1.to("txda")
+        out_txda = out.to("txda")
+        extract_dyn[(1, )](x_txda, o0_txda, o1_txda, out_txda, SLICE, (8, 8, 8, 8))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[4:12, 4:12, 0:8, 0:8])
 
         # mixed: dynamic dim0, static dim1 (=8)
         out = torch.zeros(8, 8, 8, 8, device="cpu", dtype=torch.float32)
-        extract_mixed[(1, )](x, o0, out, SLICE, (8, 8, 8, 8), 8)
+        x_txda = x.to("txda")
+        o0_txda = o0.to("txda")
+        out_txda = out.to("txda")
+        extract_mixed[(1, )](x_txda, o0_txda, out_txda, SLICE, (8, 8, 8, 8), 8)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         torch.testing.assert_close(out, x[4:12, 8:16, 0:8, 0:8])
 
     def test_insert_default(self):
@@ -251,7 +296,11 @@ class TestSlice:
         x = torch.randn(*SLICE, device="cpu", dtype=torch.float32)
 
         out = torch.zeros(*SLICE, device="cpu", dtype=torch.float32)
-        insert_default[(1, )](x, out, SLICE, (8, 8, 8, 8))
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        insert_default[(1, )](x_txda, out_txda, SLICE, (8, 8, 8, 8))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[8:12, 8:12, 8:12, 8:12] = x[0:4, 0:4, 0:4, 0:4] + 1.0
         torch.testing.assert_close(out, expected)
@@ -261,7 +310,11 @@ class TestSlice:
         x = torch.randn(*SLICE, device="cpu", dtype=torch.float32)
 
         out = torch.zeros(*SLICE, device="cpu", dtype=torch.float32)
-        insert_strided[(1, )](x, out, SLICE, (4, 4, 4, 4))
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        insert_strided[(1, )](x_txda, out_txda, SLICE, (4, 4, 4, 4))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[4:12:2, 4:12:2, 4:12:2, 4:12:2] = x[0:4, 0:4, 0:4, 0:4] + 1.0
         torch.testing.assert_close(out, expected)
@@ -271,7 +324,11 @@ class TestSlice:
         x = torch.randn(*SLICE, device="cpu", dtype=torch.float32)
 
         out = torch.zeros(*SLICE, device="cpu", dtype=torch.float32)
-        member_roundtrip[(1, )](x, out, SLICE, (8, 8, 8, 8))
+        x_txda = x.to("txda")
+        out_txda = out.to("txda")
+        member_roundtrip[(1, )](x_txda, out_txda, SLICE, (8, 8, 8, 8))
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
         expected = x.clone()
         expected[8:16, 8:16, 8:16, 8:16] = x[0:8, 0:8, 0:8, 0:8] + 1.0
         torch.testing.assert_close(out, expected)

@@ -3,6 +3,7 @@ import textwrap
 import numpy as np
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -69,10 +70,14 @@ def test_math_erf_op(dtype, device):
         tl.store(Z + off, z)
 
     torch_dtype = torch.float32 if dtype == "float32" else torch.float64
-    x = torch.randn(SIZE, dtype=torch_dtype, device=device)
+    x = torch.randn(SIZE, dtype=torch_dtype, device="cpu")
     z_ref = torch.erf(x)
     z_tri = torch.zeros_like(x)
-    kernel[(1, )](z_tri, x, SIZE=SIZE, num_warps=4)
+    z_tri_txda = z_tri.to("txda")
+    x_txda = x.to("txda")
+    kernel[(1, )](z_tri_txda, x_txda, SIZE=SIZE, num_warps=4)
+    with torch.no_grad():
+        z_tri.copy_(z_tri_txda.cpu())
     torch.testing.assert_close(z_tri, z_ref)
 
 

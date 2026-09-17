@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -31,17 +32,22 @@ def gather_test_kernel(src_ptr, idx_ptr, out_ptr, axis: tl.constexpr, src_dim0: 
 def test_gather(src_shape, indices_shape, axis, device):
 
     def triton_gather(src: torch.Tensor, axis: int, indices: torch.Tensor):
-        output = torch.empty(indices.shape, dtype=src.dtype, device=src.device)
+        output = torch.empty(indices.shape, dtype=src.dtype, device="cpu")
 
-        gather_test_kernel[(1, )](src, indices, output, axis, src.shape[0],
-                                  src.shape[1], src.stride(0), src.stride(1), indices.shape[0], indices.shape[1],
-                                  indices.stride(0), indices.stride(1), output.shape[0], output.shape[1],
-                                  output.stride(0), output.stride(1))
+        src_txda = src.to("txda")
+        indices_txda = indices.to("txda")
+        output_txda = output.to("txda")
+        gather_test_kernel[(1, )](src_txda, indices_txda, output_txda, axis, src_txda.shape[0],
+                                  src_txda.shape[1], src_txda.stride(0), src_txda.stride(1), indices_txda.shape[0], indices_txda.shape[1],
+                                  indices_txda.stride(0), indices_txda.stride(1), output_txda.shape[0], output_txda.shape[1],
+                                  output_txda.stride(0), output_txda.stride(1))
+        with torch.no_grad():
+            output.copy_(output_txda.cpu())
 
         return output
 
-    src = torch.randn(src_shape, device=device)
-    indices = torch.randint(0, src.shape[axis], indices_shape, device=device)
+    src = torch.randn(src_shape, device="cpu")
+    indices = torch.randint(0, src.shape[axis], indices_shape, device="cpu")
     ref = torch.gather(src, axis, indices)
     result = triton_gather(src, axis, indices)
     torch.testing.assert_close(result, ref, rtol=0, atol=0)

@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -48,12 +49,16 @@ def abs_triton(x):
     x = x.to(DEVICE)
     output = output.to(DEVICE)
     # Launch the kernel
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
     abs_kernel[grid](
-        x,
-        output,
+        x_txda,
+        output_txda,
         n_elements,
         BLOCK_SIZE=1024,
     )
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     output = output.to('cpu')
     return output
 
@@ -64,7 +69,7 @@ def benchmark_abs_triton(size, dtype, provider):
         raise ValueError("This benchmark is only for the Triton provider.")
 
     # Generate random input tensor
-    x = torch.randn(size, device='cpu', dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
 
     # Call the Triton kernel
     output = abs_triton(x)
@@ -79,7 +84,7 @@ def benchmark_abs_triton(size, dtype, provider):
 ])
 def test_abs(size, dtype, device="cpu"):
     # Generate random input tensor
-    x = torch.randn(size, device=device, dtype=dtype)
+    x = torch.randn(size, device="cpu", dtype=dtype)
 
     # Call the Triton kernel
     output = abs_triton(x)

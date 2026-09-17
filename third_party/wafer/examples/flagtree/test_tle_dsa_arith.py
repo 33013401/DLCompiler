@@ -87,7 +87,12 @@ class TestTLEDsaArith:
         out = torch.empty_like(a)
 
         grid = (triton.cdiv(m, bm), triton.cdiv(n, bn), triton.cdiv(p, bp))
-        dsa_arith_kernel[grid](a, b, out, m, n, p, q, BM=bm, BN=bn, BP=bp, BQ=bq, num_ctas=1, OP=op)
+        a_txda = a.to("txda")
+        b_txda = b.to("txda")
+        out_txda = out.to("txda")
+        dsa_arith_kernel[grid](a_txda, b_txda, out_txda, m, n, p, q, BM=bm, BN=bn, BP=bp, BQ=bq, num_ctas=1, OP=op)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
 
         expected = ref(a, b)
         torch.testing.assert_close(out, expected, atol=1e-4, rtol=1e-4)

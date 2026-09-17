@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -27,10 +28,14 @@ def block_copy_kernel(a_ptr, b_ptr):
 
 
 def test(device):
-    input = torch.arange(0, 16, device=device, dtype=torch.float32)
-    output = torch.full((4, ), -1, device=device, dtype=torch.float32)
-    expected = torch.arange(8, 12, device=device)
+    input = torch.arange(0, 16, device="cpu", dtype=torch.float32)
+    output = torch.full((4, ), -1, device="cpu", dtype=torch.float32)
+    expected = torch.arange(8, 12, device="cpu")
     grid = lambda meta: (1, )
 
-    block_copy_kernel[grid](input, output)
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    block_copy_kernel[grid](input_txda, output_txda)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     assert torch.equal(expected, output)

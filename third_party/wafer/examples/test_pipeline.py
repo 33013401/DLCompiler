@@ -1,6 +1,7 @@
 """Exercise software pipelining across full tiles, tails and short loops."""
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -21,10 +22,15 @@ def pipelined_gemm(A, B, C, K: tl.constexpr, BK: tl.constexpr):
 
 @pytest.mark.parametrize("k", [16, 32, 33, 64, 96, 128])
 def test_pipeline_gemm(device, k):
-    a = torch.randn((32, k), dtype=torch.float16, device=device)
-    b = torch.randn((k, 32), dtype=torch.float16, device=device)
+    a = torch.randn((32, k), dtype=torch.float16, device="cpu")
+    b = torch.randn((k, 32), dtype=torch.float16, device="cpu")
     expected = a.float() @ b.float()
     for enabled in (False, True):
-        output = torch.empty((32, 32), dtype=torch.float32, device=device)
-        pipelined_gemm[(1,)](a, b, output, k, 32, num_stages=2, enable_pipeline=enabled)
+        output = torch.empty((32, 32), dtype=torch.float32, device="cpu")
+        a_txda = a.to("txda")
+        b_txda = b.to("txda")
+        output_txda = output.to("txda")
+        pipelined_gemm[(1,)](a_txda, b_txda, output_txda, k, 32, num_stages=2, enable_pipeline=enabled)
+        with torch.no_grad():
+            output.copy_(output_txda.cpu())
         torch.testing.assert_close(output, expected, rtol=2e-3, atol=2e-3)

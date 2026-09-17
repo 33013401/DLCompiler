@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -127,17 +128,22 @@ def matmul(a, b, activation=""):
     M, K = a.shape
     K, N = b.shape
     # Allocates output.
-    c = torch.empty((M, N), device=a.device, dtype=a.dtype)
+    c = torch.empty((M, N), device="cpu", dtype=a.dtype)
     # 1D launch kernel where each block gets its own program.
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )
+    a_txda = a.to("txda")
+    b_txda = b.to("txda")
+    c_txda = c.to("txda")
     matmul_kernel[grid](
-        a, b, c,  #
+        a_txda, b_txda, c_txda,  #
         M, N, K,  #
-        a.stride(0), a.stride(1),  #
-        b.stride(0), b.stride(1),  #
-        c.stride(0), c.stride(1),  #
+        a_txda.stride(0), a_txda.stride(1),  #
+        b_txda.stride(0), b_txda.stride(1),  #
+        c_txda.stride(0), c_txda.stride(1),  #
         ACTIVATION=activation,  #
     )
+    with torch.no_grad():
+        c.copy_(c_txda.cpu())
     return c
 
 
@@ -157,8 +163,8 @@ def test_matmul(M, K, N, dtype, device='cpu'):
     cols2 = 321
     # a = torch.randn((rows1, cols1), device=device, dtype=torch.float32)
     # b = torch.randn((rows2, cols2), device=device, dtype=torch.float32)
-    a_ = torch.full((rows1, cols1), 1, device='cpu', dtype=torch.float32)
-    b_ = torch.full((rows2, cols2), 1, device='cpu', dtype=torch.float32)
+    a_ = torch.full((rows1, cols1), 1, device="cpu", dtype=torch.float32)
+    b_ = torch.full((rows2, cols2), 1, device="cpu", dtype=torch.float32)
     a = a_.to(DEVICE)
     b = b_.to(DEVICE)
     triton_output = matmul(a, b)
@@ -170,8 +176,8 @@ def test_matmul(M, K, N, dtype, device='cpu'):
 
 @benchmark.measure()
 def bench_matmul(M, N, K, provider):
-    a = torch.randn((M, K), device='cpu', dtype=torch.float32)
-    b = torch.randn((K, N), device='cpu', dtype=torch.float32)
+    a = torch.randn((M, K), device="cpu", dtype=torch.float32)
+    b = torch.randn((K, N), device="cpu", dtype=torch.float32)
     if provider == 'torch':
         torch.matmul(a, b)
     if provider == 'triton':

@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 from triton._internal_testing import numpy_random
@@ -27,5 +28,9 @@ def test_sort(M, N, descending, dtype_str, device):
     x = torch.from_numpy(x).to(device)
     y = torch.sort(x, descending=descending)[0]
     z = torch.empty_like(x)
-    sort_kernel[(1, )](x, z, N, M, descending, num_warps=8)
+    x_txda = x.to("txda")
+    z_txda = z.to("txda")
+    sort_kernel[(1, )](x_txda, z_txda, N, M, descending, num_warps=8)
+    with torch.no_grad():
+        z.copy_(z_txda.cpu())
     assert (y == z).all(), (y, z)

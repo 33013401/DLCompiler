@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import benchmark
@@ -26,8 +27,12 @@ def test_flip(M, N, dtype_str, device):
     x = numpy_random((N, M), dtype_str=dtype_str)
     x = torch.from_numpy(x).to(device)
     y = torch.flip(x, (1, ))
-    z = torch.empty_like(x, device=device)
-    flip_kernel[(1, )](x, z, N, M, num_warps=8)
+    z = torch.empty_like(x, device="cpu")
+    x_txda = x.to("txda")
+    z_txda = z.to("txda")
+    flip_kernel[(1, )](x_txda, z_txda, N, M, num_warps=8)
+    with torch.no_grad():
+        z.copy_(z_txda.cpu())
     assert (y == z).all(), (y, z)
 
 

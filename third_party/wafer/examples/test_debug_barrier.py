@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -14,11 +15,14 @@ def barrier(data):
 
 
 def test_barrier():
-    data = torch.zeros(128, dtype=torch.float32, device='cpu')
+    data = torch.zeros(128, dtype=torch.float32, device="cpu")
 
     # Launch the kernel
     grid = (1, )
-    barrier[grid](data)
+    data_txda = data.to("txda")
+    barrier[grid](data_txda)
+    with torch.no_grad():
+        data.copy_(data_txda.cpu())
     torch.testing.assert_close(data, torch.ones_like(data))
 
 

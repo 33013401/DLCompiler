@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import benchmark
@@ -19,12 +20,16 @@ def test_trans_2d(dtype_str, shape, perm, device):
         ou_offs = tl.arange(0, ou_shape1)[:, None] * ou_shape2 + tl.arange(0, ou_shape2)[None, :]
         tl.store(Out + ou_offs, tl.permute(tl.load(In + in_offs), (trans1, trans2)))
 
-    input = torch.arange(math.prod(shape), dtype=getattr(torch, dtype_str), device=device).reshape(shape)
+    input = torch.arange(math.prod(shape), dtype=getattr(torch, dtype_str), device="cpu").reshape(shape)
     expected = torch.permute(input, perm)
     # Don't do zeros_like -- that copies the layout, which we don't want.
-    actual = torch.zeros(expected.shape, dtype=getattr(torch, dtype_str), device=device)
+    actual = torch.zeros(expected.shape, dtype=getattr(torch, dtype_str), device="cpu")
 
-    kernel[(1, )](input, actual, *shape, *[shape[i] for i in perm], *perm)
+    input_txda = input.to("txda")
+    actual_txda = actual.to("txda")
+    kernel[(1, )](input_txda, actual_txda, *shape, *[shape[i] for i in perm], *perm)
+    with torch.no_grad():
+        actual.copy_(actual_txda.cpu())
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=0)
 

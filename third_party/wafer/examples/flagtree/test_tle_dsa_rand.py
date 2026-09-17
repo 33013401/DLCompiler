@@ -62,16 +62,37 @@ def test_randgen_shape_and_determinism():
     out = torch.empty(n, device="cpu", dtype=torch.int64)
     s0o = torch.zeros(16, device="cpu", dtype=torch.int64)
     s1o = torch.zeros(16, device="cpu", dtype=torch.int64)
-    _randgen_kernel[(1, )](42, out, s0o, s1o, N=n)
+    out_txda = out.to("txda")
+    s0o_txda = s0o.to("txda")
+    s1o_txda = s1o.to("txda")
+    _randgen_kernel[(1, )](42, out_txda, s0o_txda, s1o_txda, N=n)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
+        s0o.copy_(s0o_txda.cpu())
+        s1o.copy_(s1o_txda.cpu())
 
     # determinism: same seed -> same stream
     out2 = torch.empty_like(out)
-    _randgen_kernel[(1, )](42, out2, s0o, s1o, N=n)
+    out2_txda = out2.to("txda")
+    s0o_txda = s0o.to("txda")
+    s1o_txda = s1o.to("txda")
+    _randgen_kernel[(1, )](42, out2_txda, s0o_txda, s1o_txda, N=n)
+    with torch.no_grad():
+        out2.copy_(out2_txda.cpu())
+        s0o.copy_(s0o_txda.cpu())
+        s1o.copy_(s1o_txda.cpu())
     torch.testing.assert_close(out, out2)
 
     # stream advances: different seed -> different values
     out3 = torch.empty_like(out)
-    _randgen_kernel[(1, )](43, out3, s0o, s1o, N=n)
+    out3_txda = out3.to("txda")
+    s0o_txda = s0o.to("txda")
+    s1o_txda = s1o.to("txda")
+    _randgen_kernel[(1, )](43, out3_txda, s0o_txda, s1o_txda, N=n)
+    with torch.no_grad():
+        out3.copy_(out3_txda.cpu())
+        s0o.copy_(s0o_txda.cpu())
+        s1o.copy_(s1o_txda.cpu())
     assert not torch.equal(out, out3)
 
 
@@ -80,13 +101,23 @@ def test_randgen_invalid_n_out():
     s0o = torch.zeros(16, device="cpu", dtype=torch.int64)
     s1o = torch.zeros(16, device="cpu", dtype=torch.int64)
     with pytest.raises(Exception):
-        _randgen_kernel[(1, )](42, out, s0o, s1o, N=8)  # not a multiple of 16
+        out_txda = out.to("txda")
+        s0o_txda = s0o.to("txda")
+        s1o_txda = s1o.to("txda")
+        _randgen_kernel[(1, )](42, out_txda, s0o_txda, s1o_txda, N=8)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())
+            s0o.copy_(s0o_txda.cpu())
+            s1o.copy_(s1o_txda.cpu())  # not a multiple of 16
 
 
 def test_rand_uniform_stats():
     n = 16384
     out = torch.empty(n, device="cpu", dtype=torch.float32)
-    _rand_kernel[(1, )](7, out, N=n)
+    out_txda = out.to("txda")
+    _rand_kernel[(1, )](7, out_txda, N=n)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     assert out.min().item() >= 0.0 and out.max().item() < 1.0
     mean, std = out.mean().item(), out.std().item()
@@ -99,7 +130,10 @@ def test_rand_uniform_stats():
 def test_randn_normal_stats():
     n = 16384
     out = torch.empty(n, device="cpu", dtype=torch.float32)
-    _randn_kernel[(1, )](11, out, N=n)
+    out_txda = out.to("txda")
+    _randn_kernel[(1, )](11, out_txda, N=n)
+    with torch.no_grad():
+        out.copy_(out_txda.cpu())
 
     mean, std = out.mean().item(), out.std().item()
     assert abs(mean) < 0.05, f"normal mean off: {mean}"
@@ -111,7 +145,10 @@ def test_randn_normal_stats():
 def test_rand_invalid_n_out():
     out = torch.empty(16, device="cpu", dtype=torch.float32)
     with pytest.raises(Exception):
-        _rand_kernel[(1, )](7, out, N=16)  # not a multiple of 32
+        out_txda = out.to("txda")
+        _rand_kernel[(1, )](7, out_txda, N=16)
+        with torch.no_grad():
+            out.copy_(out_txda.cpu())  # not a multiple of 32
 
 
 if __name__ == "__main__":

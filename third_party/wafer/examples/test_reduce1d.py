@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 from triton.backends.compiler import GPUTarget
@@ -22,11 +23,15 @@ def reduce_kernel_1d(
 
 def test_1d_reduce_sum(device):
     BLOCK_SIZE = 32768
-    x = torch.ones([BLOCK_SIZE], device=device, dtype=torch.float32)
-    output = torch.empty([1], device=device, dtype=x.dtype)
+    x = torch.ones([BLOCK_SIZE], device="cpu", dtype=torch.float32)
+    output = torch.empty([1], device="cpu", dtype=x.dtype)
     grid = lambda meta: (1, )
 
-    reduce_kernel_1d[grid](x, output, BLOCK_SIZE, BLOCK_SIZE=BLOCK_SIZE)
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    reduce_kernel_1d[grid](x_txda, output_txda, BLOCK_SIZE, BLOCK_SIZE=BLOCK_SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     # CPU reference
     ref = x.sum().unsqueeze(0)
 

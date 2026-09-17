@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 import benchmark
@@ -42,8 +43,8 @@ def test_scan_1d(M, N, reversed, device):
     # x = torch.rand((M, ), dtype=torch.float32, device=device
     n_elements = 32
 
-    x = torch.arange(0, n_elements, dtype=torch.float32, device=device)
-    output = torch.empty(M * N, dtype=torch.float32, device=device)
+    x = torch.arange(0, n_elements, dtype=torch.float32, device="cpu")
+    output = torch.empty(M * N, dtype=torch.float32, device="cpu")
 
     if reversed:
         scan_kernel = scan_kernel_reverse
@@ -51,7 +52,11 @@ def test_scan_1d(M, N, reversed, device):
     else:
         scan_kernel = scan_kernel
         ref_x = x
-    scan_kernel[(1, )](output, x, n_elements, M, N)
+    output_txda = output.to("txda")
+    x_txda = x.to("txda")
+    scan_kernel[(1, )](output_txda, x_txda, n_elements, M, N)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
 
     ref = torch.cumsum(ref_x, dim=0).reshape([1, M]).broadcast_to([N, M]).reshape([M * N])
     if reversed:

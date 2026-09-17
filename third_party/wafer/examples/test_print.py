@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
 
@@ -16,7 +17,11 @@ def test_print():
     x = torch.arange(16, dtype=torch.int32)
     x.reshape(4, 4)
     y = torch.zeros_like(x)
-    kernel_device_print[(1, )](x, y, BLOCK=16)
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    kernel_device_print[(1, )](x_txda, y_txda, BLOCK=16)
+    with torch.no_grad():
+        y.copy_(y_txda.cpu())
     torch.testing.assert_close(y, x)
 
 

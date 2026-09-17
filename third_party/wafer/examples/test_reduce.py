@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 from triton.backends.compiler import GPUTarget
@@ -32,12 +33,16 @@ def reduce_kernel_2d(
 def test(device):
     n_rows = 16
     n_cols = 32
-    x = torch.rand([n_cols, n_rows], device=device, dtype=torch.float32)
-    output = torch.empty([n_cols], device=device, dtype=x.dtype)
+    x = torch.rand([n_cols, n_rows], device="cpu", dtype=torch.float32)
+    output = torch.empty([n_cols], device="cpu", dtype=x.dtype)
     BLOCK_SIZE = n_rows
     grid = lambda meta: (n_cols, )
 
-    reduce_kernel_2d[grid](x, output, x.stride(0), n_rows, BLOCK_SIZE=BLOCK_SIZE)
+    x_txda = x.to("txda")
+    output_txda = output.to("txda")
+    reduce_kernel_2d[grid](x_txda, output_txda, x_txda.stride(0), n_rows, BLOCK_SIZE=BLOCK_SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     ans = torch.sum(x, dim=1)
     torch.testing.assert_close(output, ans, rtol=0.001, atol=1e-5)
 

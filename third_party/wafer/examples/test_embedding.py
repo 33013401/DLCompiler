@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 import math
 
 import triton
@@ -44,14 +45,19 @@ class Embedding(torch.autograd.Function):
         BLOCK_SIZE = triton.next_power_of_2(N)
         indices = indices.contiguous()
         weight = weight.contiguous()
-        output = torch.empty((*indices.shape, N), device=indices.device, dtype=weight.dtype)
+        output = torch.empty((*indices.shape, N), device="cpu", dtype=weight.dtype)
 
         output = output.to(DEVICE)
         indices = indices.to(DEVICE)
         weight = weight.to(DEVICE)
+        output_txda = output.to("txda")
+        indices_txda = indices.to("txda")
+        weight_txda = weight.to("txda")
         embedding_kernel[
             M,
-        ](output, indices, weight, N, BLOCK_SIZE)
+        ](output_txda, indices_txda, weight_txda, N, BLOCK_SIZE)
+        with torch.no_grad():
+            output.copy_(output_txda.cpu())
         output = output.to("cpu")
         ctx.M = M
         ctx.N = N
@@ -74,8 +80,8 @@ def embedding(weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=
 def test_embedding(M, N, dtype, device='cpu'):
     torch.manual_seed(0)
 
-    weight = torch.rand((M, N), dtype=dtype, device=device)
-    indices = torch.randint(0, M, [M], dtype=torch.int32, device=device)
+    weight = torch.rand((M, N), dtype=dtype, device="cpu")
+    indices = torch.randint(0, M, [M], dtype=torch.int32, device="cpu")
 
     triton_output = embedding(weight, indices)
 

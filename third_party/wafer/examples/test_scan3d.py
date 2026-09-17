@@ -3,6 +3,7 @@ import textwrap
 import numpy as np
 import pytest
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -135,7 +136,12 @@ def test_scan3d(op, dtype_str, shape, axis, reverse, device):
     # triton result
     # we don't cast the `fp32 = bf16 op bf16` result to bfloat16 to alleviate accuracy issues
     z_tri = to_triton(z, device=device)
-    kernel[(1, )](x_tri, y_tri, z_tri, BLOCK_M=shape[0], BLOCK_N=shape[1], BLOCK_K=shape[2], AXIS=axis)
+    x_tri_txda = x_tri.to("txda")
+    y_tri_txda = y_tri.to("txda")
+    z_tri_txda = z_tri.to("txda")
+    kernel[(1, )](x_tri_txda, y_tri_txda, z_tri_txda, BLOCK_M=shape[0], BLOCK_N=shape[1], BLOCK_K=shape[2], AXIS=axis)
+    with torch.no_grad():
+        z_tri.copy_(z_tri_txda.cpu())
 
     z_tri = to_numpy(z_tri)
 

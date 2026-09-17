@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 
@@ -28,12 +29,17 @@ def test_sign_extend(device):
         pass  # Wafer driver is selected by conftest.py.
 
     SIZE = 4
-    offsets = torch.full((1, ), 1, device=device, dtype=torch.int32)
-    input = torch.arange(0, SIZE, device=device, dtype=torch.int32)
-    output = torch.full((SIZE, ), -1, device=device, dtype=torch.int32)
+    offsets = torch.full((1, ), 1, device="cpu", dtype=torch.int32)
+    input = torch.arange(0, SIZE, device="cpu", dtype=torch.int32)
+    output = torch.full((SIZE, ), -1, device="cpu", dtype=torch.int32)
     grid = lambda meta: (1, )
     print(output)
-    sign_extend[grid](offsets, input, output, SIZE)
+    offsets_txda = offsets.to("txda")
+    input_txda = input.to("txda")
+    output_txda = output.to("txda")
+    sign_extend[grid](offsets_txda, input_txda, output_txda, SIZE)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     print(input)
     print(output)
-    torch.testing.assert_close(torch.tensor([1, 2, 3, 11], device=device, dtype=torch.int32), output)
+    torch.testing.assert_close(torch.tensor([1, 2, 3, 11], device="cpu", dtype=torch.int32), output)

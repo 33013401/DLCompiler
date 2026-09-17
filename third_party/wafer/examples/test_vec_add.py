@@ -1,4 +1,5 @@
 import torch
+import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
@@ -51,7 +52,12 @@ def add(x: torch.Tensor, y: torch.Tensor):
     #  - Each torch.tensor object is implicitly converted into a pointer to its first element.
     #  - `triton.jit`'ed functions can be indexed with a launch grid to obtain a callable GPU kernel.
     #  - Don't forget to pass meta-parameters as keywords arguments.
-    add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
+    x_txda = x.to("txda")
+    y_txda = y.to("txda")
+    output_txda = output.to("txda")
+    add_kernel[grid](x_txda, y_txda, output_txda, n_elements, BLOCK_SIZE=1024)
+    with torch.no_grad():
+        output.copy_(output_txda.cpu())
     # We return a handle to z but, since `torch.cuda.synchronize()` hasn't been called, the kernel is still
     # running asynchronously at this point.
     output = output.to("cpu")
@@ -83,8 +89,8 @@ def test(device):
 
 @benchmark.measure()
 def bench_vecadd(size, provider):
-    a = torch.rand(size, device='cpu', dtype=torch.float32)
-    b = torch.rand(size, device='cpu', dtype=torch.float32)
+    a = torch.rand(size, device="cpu", dtype=torch.float32)
+    b = torch.rand(size, device="cpu", dtype=torch.float32)
     if provider == 'torch':
         a + b
     if provider == 'triton':
