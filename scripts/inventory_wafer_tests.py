@@ -46,10 +46,11 @@ def main():
     executions = {}
     if args.execution_summary:
         run = json.loads(args.execution_summary.read_text())
-        executions = {
-            "third_party/wafer/examples/" + result["file"]: run["execution"] + ":" + result["status"]
-            for result in run["files"]
-        }
+        for result in run['files']:
+            name = result['file']
+            if not name.startswith(('test/', 'third_party/')):
+                name = 'third_party/wafer/examples/' + name
+            executions[name] = run.get('execution', run.get('suite', 'unknown')) + ':' + result['status']
     rows = []
     for name in sorted(files):
         path = Path(name)
@@ -59,7 +60,7 @@ def main():
         tree = ast.parse(text)
         tests = test_functions(tree)
         if name.startswith("test/wafer/"):
-            group, status = "wafer_regression", "in_final_regression_suite"
+            group, status = "wafer_regression", executions.get(name, "execution_not_inferred_by_static_scan")
         elif name.startswith("third_party/wafer/examples/"):
             group, status = "wafer_examples", executions.get(name, "execution_not_inferred_by_static_scan")
         elif name.startswith("third_party/wafer/third_party/"):
