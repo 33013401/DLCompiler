@@ -170,6 +170,8 @@ def get_current_backend():
         backend = "maca"
     elif command_exists("nvidia-smi"):
         backend = "nvidia"
+    elif command_exists("tsm_smi"):
+        backend = "wafer"
     else:
         backend = None
     return backend
