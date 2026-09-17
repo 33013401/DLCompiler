@@ -21,15 +21,20 @@ def main():
     parser.add_argument('--output-dir', required=True, type=Path)
     parser.add_argument('--suite', choices=('accepted', 'examples', 'ops', 'runtime', 'native_math', 'host'), default='accepted')
     parser.add_argument('--select', nargs='+', help='Paths relative to the suite root (repository root for accepted)')
+    parser.add_argument('--nodeids-file', type=Path,
+                        help='With --suite accepted, use an explicit nodeid list (e.g. remaining parameters)')
     parser.add_argument('--timeout', type=int, default=1800, help='Per-file timeout; any timeout stops device scheduling')
     args = parser.parse_args()
+    if args.nodeids_file and args.suite != 'accepted':
+        parser.error('--nodeids-file requires --suite accepted')
+    manifest = args.nodeids_file.resolve() if args.nodeids_file else MANIFEST
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Never merge stale evidence from another source state into a fresh run.
     if (output / 'summary.json').exists():
         parser.error('Output already contains a run; choose a new directory')
     accepted = defaultdict(list)
-    for node in MANIFEST.read_text().splitlines():
+    for node in manifest.read_text().splitlines():
         accepted[node.split('::', 1)[0]].append(node)
     root = {'accepted': REPO, 'examples': EXAMPLES, 'host': REPO / 'test/wafer'}.get(args.suite,
             REPO / 'test/wafer' / args.suite)
@@ -60,7 +65,7 @@ def main():
     except subprocess.CalledProcessError:
         revision = None
     summary = dict(suite=args.suite, revision=revision, python=sys.executable,
-                   selection_sha256=hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
+                   selection=str(manifest), selection_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),
                    files=[], blocked_reason=None)
     for index, source in enumerate(files, 1):
         relative = str(source.relative_to(REPO))
