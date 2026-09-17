@@ -94,10 +94,12 @@ def device(wafer_device):
     return wafer_device
 
 
-def pytest_runtest_setup(item):
+def pytest_runtest_logstart(nodeid, location):
+    # This also runs before pytest's skip markers. A setup hook can be bypassed
+    # by an early skip, leaving that result attributed to the previous case.
     if STATE['blocked']:
         pytest.exit('Device error: stop before another kernel launch', returncode=3)
-    STATE.update(nodeid=item.nodeid, started=0, completed=0, since=time.time())
+    STATE.update(nodeid=nodeid, started=0, completed=0, since=time.time())
     record('test_start')
 
 
