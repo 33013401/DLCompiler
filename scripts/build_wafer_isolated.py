@@ -139,6 +139,10 @@ def main():
                  "FileCheck": llvm / "bin/FileCheck",
                  "wafer-opt": tools / "third_party/wafer/bin/wafer-opt",
                  "libvr.a": tools / "third_party/wafer/crt/lib/libvr.a"}
+    # A shared-library link can succeed with unresolved C++ symbols. Resolve
+    # them before recording a usable build, without importing another Triton.
+    subprocess.run([sys.executable, "-c", "import ctypes, sys; ctypes.CDLL(sys.argv[1])",
+                    str(artifacts["libtriton.so"])], check=True)
     manifest = {"schema": 2, "layout": "wafer-only-frontend-tools", "llvm_commit": llvm_commit,
                 "python_soabi": sysconfig.get_config_var("SOABI"),
                 "llvm_path": str(llvm), "dlcompiler_commit": git(ROOT, "rev-parse", "HEAD").decode().strip(),

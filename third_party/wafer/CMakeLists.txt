@@ -1,9 +1,9 @@
 set(WAFER_BUILD_ROLE "tools" CACHE STRING "Wafer component: frontend or tools")
 set_property(CACHE WAFER_BUILD_ROLE PROPERTY STRINGS frontend tools)
 
-# The shared Python extension contains only the TTIR/DSA frontend. FLIR owns
-# different implementations of DICP's tts dialect and lowering factories;
-# those must live in the separate wafer-opt build, never in this libtriton.
+# The Wafer Python extension contains only the TTIR/DSA frontend. FLIR's
+# dialects and lowering live in the separate wafer-opt build. Neither build
+# links the original DLCompiler C++ plugin.
 if(WAFER_BUILD_ROLE STREQUAL "frontend")
   if(NOT TRITON_BUILD_PYTHON_MODULE)
     message(FATAL_ERROR "Wafer frontend requires TRITON_BUILD_PYTHON_MODULE")
@@ -13,7 +13,9 @@ if(WAFER_BUILD_ROLE STREQUAL "frontend")
   add_triton_plugin(TritonWafer
     ${CMAKE_CURRENT_SOURCE_DIR}/python/triton_wafer_frontend.cc
     LINK_LIBS TleDsaIR MLIRArithDialect MLIRLinalgDialect MLIRTensorDialect
-              MLIRVectorDialect MLIRFuncDialect MLIRFuncAllExtensions)
+              MLIRVectorDialect MLIRFuncDialect MLIRFuncAllExtensions
+              MLIRArithTransforms MLIRBufferizationTransforms
+              MLIRLinalgTransforms MLIRSCFTransforms MLIRTensorTransforms)
   target_link_libraries(TritonWafer PRIVATE Python3::Module pybind11::headers)
   return()
 elseif(NOT WAFER_BUILD_ROLE STREQUAL "tools")
@@ -23,7 +25,7 @@ endif()
 if(TARGET TritonToLinalg OR TARGET TritonStructuredIR)
   message(FATAL_ERROR
     "Wafer tools require a separate build tree without the DICP plugin. "
-    "Use WAFER_BUILD_ROLE=frontend alongside DICP.")
+    "Build the original DICP plugin and Wafer in separate build trees.")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/WaferConfig.cmake")
