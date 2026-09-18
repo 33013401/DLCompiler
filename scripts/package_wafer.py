@@ -18,9 +18,12 @@ def prepare_package(repo, staging, manifest_path, manifest, version, revision):
     # Keep the Python DICP dispatch entry point, but no Ascend language package
     # or original DICP C++ plugin. Vendor imports remain behind target branches.
     backend = package / "backends/dicp_triton"
-    shutil.copytree(repo / "backend", backend, ignore=ignored)
+    shutil.copytree(repo / "backend", backend, ignore=shutil.ignore_patterns(
+        "__pycache__", "*.pyc", "*.so", "*.a", "*.o", "dicp_opt", "bin"))
     language = package / "language/extra"
-    shutil.copytree(repo / "third_party/wafer/language/wafer", language / "wafer", ignore=ignored)
+    for name in ("wafer", "txda"):
+        # txda only re-exports the Wafer language API for existing callers.
+        shutil.copytree(repo / "third_party/wafer/language" / name, language / name, ignore=ignored)
     shutil.copytree(repo / "third_party/wafer/experimental/tle", package / "experimental/tle", ignore=ignored)
     (package / "_C").mkdir(exist_ok=True)
     (package / "_C/__init__.py").touch()
