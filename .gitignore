@@ -107,7 +107,6 @@ third_party/wafer/build*/
 /wafer_env.sh
 /llvm22_env.sh
 /dist/
-/docs/
 **/dump[0-9]*/
 **/kernel_*.ll
 **/kernel_*.o
