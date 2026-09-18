@@ -1,63 +1,58 @@
-"""Exercise vendor loader contracts without loading a device program."""
+"""Exercise upstream Triton's loader call without loading a device program."""
 
-import importlib
-import sys
 from types import SimpleNamespace
 
 import pytest
+from triton.compiler import compiler
 
 
-def driver_for(wafer_modules, target, load, cpu=False):
-    module = importlib.import_module("_wafer_under_test.driver")
-    driver = object.__new__(module.DICPDriver)
-    driver.target = target
-    driver.is_cpu_verify = cpu
-    driver.utils = SimpleNamespace(load_binary=load)
-    return driver
+def make_kernel(monkeypatch, load):
+    launcher = object()
+    driver = SimpleNamespace(
+        utils=SimpleNamespace(load_binary=load),
+        get_current_device=lambda: 3,
+        get_current_target=lambda: SimpleNamespace(warp_size=32),
+        launcher_cls=lambda src, metadata: launcher,
+    )
+    monkeypatch.setattr(compiler, "driver", SimpleNamespace(active=driver))
+    monkeypatch.setattr(compiler, "max_shared_mem", lambda device: 1024)
+    kernel = object.__new__(compiler.CompiledKernel)
+    kernel.module = None
+    kernel.function = None
+    kernel.src = object()
+    kernel.name = "wafer_entry"
+    kernel.kernel = b"ELF"
+    kernel.metadata = SimpleNamespace(shared=64, num_warps=1)
+    kernel.metadata_group = {}
+    kernel.hash = "test-hash"
+    return kernel, launcher
 
 
-@pytest.mark.parametrize("target", ["wafer", "nvidia", "ascend", "maca", "mlu"])
-def test_vendor_loader_arguments_and_results(wafer_modules, target):
+def test_upstream_triton_uses_native_five_result_loader(monkeypatch):
     calls = []
-    handles = (object(), object(), 7, 2)
-    native = handles + (1024,) if target in ("wafer", "nvidia") else handles
+    native = (object(), object(), 7, 2, 1024)
 
     def load(*args):
         calls.append(args)
         return native
 
-    metadata = SimpleNamespace(shared=64, kernel_name="ascend_entry", mix_mode="MIX_AIC")
-    driver = driver_for(wafer_modules, target, load)
-    result = driver.load_binary_for_triton("jit_entry", b"ELF", metadata, 3)
-    expected_args = (("ascend_entry", b"ELF", 64, 3, "MIX_AIC") if target == "ascend"
-                     else ("jit_entry", b"ELF", 64, 3))
-    assert calls == [expected_args]
-    assert result == (native if len(native) == 5 else handles + (sys.maxsize,))
+    kernel, launcher = make_kernel(monkeypatch, load)
+    kernel._init_handles()
+    assert calls == [("wafer_entry", b"ELF", 64, 3)]
+    assert (kernel.module, kernel.function, kernel.n_regs, kernel.n_spills, kernel.n_max_threads) == native
+    assert kernel._run is launcher
+    kernel._init_handles()
+    assert len(calls) == 1
 
 
-def test_cpu_verify_does_not_use_ascend_signature(wafer_modules):
-    calls = []
-
-    def load(name, binary, shared, device):
-        calls.append((name, binary, shared, device))
-        return None, binary, None, None
-
-    driver = driver_for(wafer_modules, "ascend", load, cpu=True)
-    result = driver.load_binary_for_triton("cpu_entry", b"object", SimpleNamespace(shared=0), 0)
-    assert calls == [("cpu_entry", b"object", 0, 0)]
-    assert result == (None, b"object", None, None, sys.maxsize)
-
-
-@pytest.mark.parametrize("target", ["ascend", "wafer"])
-def test_real_loader_type_error_is_not_retried(wafer_modules, target):
+def test_loader_error_is_not_retried_with_another_signature(monkeypatch):
     calls = []
 
     def load(*args):
         calls.append(args)
         raise TypeError("invalid binary in vendor loader")
 
-    driver = driver_for(wafer_modules, target, load)
-    metadata = SimpleNamespace(shared=0, kernel_name="entry", mix_mode="AIC")
+    kernel, _ = make_kernel(monkeypatch, load)
     with pytest.raises(TypeError, match="invalid binary"):
-        driver.load_binary_for_triton("entry", b"bad", metadata, 0)
+        kernel._init_handles()
     assert len(calls) == 1

@@ -211,30 +211,12 @@ class DICPDriver(DriverBase):
             cls.instance.__initialized = False
         return cls.instance
 
-    def load_binary_for_triton(self, name, binary, metadata, device):
-        """Adapt vendor loaders once, without changing their native ABI.
-
-        Triton 3.5 consumes five results; the legacy DICP loaders return four.
-        Choose the protocol before loading so a real loader error is never
-        mistaken for a signature mismatch and retried with another ABI.
-        """
-        if self.is_cpu_verify:
-            loaded = self.utils.load_binary(name, binary, metadata.shared, device)
-        elif self.target == "ascend":
-            loaded = self.utils.load_binary(
-                metadata.kernel_name, binary, metadata.shared, device, metadata.mix_mode
-            )
-        elif self.target in ("wafer", "nvidia"):
-            return self.utils.load_binary(name, binary, metadata.shared, device)
-        elif self.target in ("mlu", "maca"):
-            loaded = self.utils.load_binary(name, binary, metadata.shared, device)
-        else:
-            raise RuntimeError(f"No Triton loader protocol for backend {self.target!r}")
-        module, function, n_regs, n_spills = loaded
-        return module, function, n_regs, n_spills, sys.maxsize
+    @staticmethod
+    def is_active():
+        return True
 
     @classmethod
-    def is_active(cls):
+    def is_active(self):
         if get_current_backend() == "wafer":
             return True
         try:
@@ -262,7 +244,7 @@ class DICPDriver(DriverBase):
                     reset = "\x1b[0m"
                     warnings.warn(red + str(e_npucompiler) + reset)
                     return False
-            elif current_backend == "muxi":
+            elif self.target == "muxi":
                 import torch
 
                 return True

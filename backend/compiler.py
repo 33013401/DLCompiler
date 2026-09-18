@@ -356,11 +356,7 @@ class DICPBackend(BaseBackend):
         elif self.target.backend == "ascend":
             from triton.backends.dicp_triton.npu import min_dot_size
 
-            codegen_fns = {
-                "min_dot_size": min_dot_size(self.target),
-                # Only Ascend kernels install the CANN builder and AST handlers.
-                "dicp_ascend": True,
-            }
+            codegen_fns = {"min_dot_size": min_dot_size(self.target)}
         elif self.target.backend == "mlu":
             from triton.backends.dicp_triton.mlu import min_dot_size
 

@@ -1,69 +1,41 @@
 #!/usr/bin/env python3
+"""Package the verified Wafer-only build without invoking DLCompiler setup.py."""
 
 import argparse
+import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-
+import tempfile
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_BUILD_DIR = ROOT / "third_party" / "wafer" / "build_manual"
 sys.path.insert(0, str(ROOT / "scripts"))
 from wafer_artifacts import read_manifest
+from package_wafer import prepare_package
 
 
-def require_file(path: Path, description: str) -> Path:
-    if not path.is_file():
-        raise SystemExit(f"ERROR: {description} not found: {path}")
-    return path
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the DLCompiler Wafer wheel")
-    parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build-dir", type=Path,
+                        default=Path(os.getenv("WAFER_BUILD_DIR", ROOT / "third_party/wafer/build_manual")))
     parser.add_argument("--wheel-dir", type=Path, default=ROOT / "dist")
     args = parser.parse_args()
-
-    build_dir = args.build_dir.resolve()
-    manifest_path = require_file(build_dir / "wafer-build.json", "isolated build manifest")
+    build = args.build_dir.resolve()
+    manifest_path = build / "wafer-build.json"
     manifest = read_manifest(manifest_path)
-
-    prebuilt_dir = build_dir / "python-package"
-    prebuilt_dir.mkdir(parents=True, exist_ok=True)
-    links = {prebuilt_dir / name: Path(entry["path"])
-             for name, entry in manifest["artifacts"].items()}
-    for destination, source in links.items():
-        destination.unlink(missing_ok=True)
-        destination.symlink_to(source)
-
-    shutil.rmtree(ROOT / "build", ignore_errors=True)
-    args.wheel_dir.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["TRITON_PLUGIN_DIRS"] = str(ROOT)
-    env["TRITON_VERSION"] = "3.5.0"
-    env["TRITON_WHEEL_NAME"] = "triton"
-    env["WAFER_PREBUILT_DIR"] = str(prebuilt_dir)
-    env["WAFER_BUILD_MANIFEST"] = str(manifest_path)
-    env["WAFER_LANGUAGE_DIR"] = str(ROOT / "third_party" / "wafer" / "language")
-    env["WAFER_EXPERIMENTAL_DIR"] = str(ROOT / "third_party" / "wafer" / "experimental")
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--no-deps",
-            "--wheel-dir",
-            str(args.wheel_dir.resolve()),
-            str(ROOT),
-        ],
-        check=True,
-        cwd=ROOT,
-        env=env,
-    )
+    revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
+    version = "3.5.0+wafer.git" + revision[:8]
+    output = args.wheel_dir.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    # All staging is private to this invocation. Never remove ROOT/build or
+    # install over the caller's existing Triton environment.
+    with tempfile.TemporaryDirectory(prefix="wafer-package-", dir=build) as temporary:
+        staging = Path(temporary)
+        identity = prepare_package(ROOT, staging, manifest_path, manifest, version, revision)
+        subprocess.run([sys.executable, "setup.py", "bdist_wheel", "--dist-dir", str(output)],
+                       cwd=staging, check=True)
+    (output / "wafer-package.json").write_text(json.dumps(identity, indent=2) + "\n")
 
 
 if __name__ == "__main__":
