@@ -57,8 +57,7 @@ def triton_count(
     tmp4 = tmp3.to(tl.float32)
     res = tl.sum(tmp4, dim)
 
-    # Reducing the input vector produces one count; the output is a scalar.
-    tl.store(out_ptr0, res)
+    tl.store(out_ptr0 + idx_block, res)
 
 
 @triton.jit
@@ -73,8 +72,7 @@ def triton_gt(
     tmp4 = tmp3.to(tl.float32)
     res = tl.sum(tmp4, dim)
 
-    # Reducing the input vector produces one count; the output is a scalar.
-    tl.store(out_ptr0, res)
+    tl.store(out_ptr0 + idx_block, res)
 
 
 @triton.jit
@@ -89,8 +87,7 @@ def triton_lt(
     tmp4 = tmp3.to(tl.float32)
     res = tl.sum(tmp4, dim)
 
-    # Reducing the input vector produces one count; the output is a scalar.
-    tl.store(out_ptr0, res)
+    tl.store(out_ptr0 + idx_block, res)
 
 
 types = [
