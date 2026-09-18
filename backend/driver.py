@@ -206,16 +206,10 @@ class DICPDriver(DriverBase):
             self._cpu_driver = CPUDriver()
 
     def __new__(cls, target=None):
-        # Reuse one driver per backend so different backends cannot share initialized state.
-        backend = target.backend if hasattr(target, "backend") else target
-        backend = str(backend) if backend else get_current_backend()
-        if not hasattr(cls, "instances"):
-            cls.instances = {}
-        if backend not in cls.instances:
-            instance = super(DICPDriver, cls).__new__(cls)
-            instance.__initialized = False
-            cls.instances[backend] = instance
-        return cls.instances[backend]
+        if not hasattr(cls, "instance"):
+            cls.instance = super(DICPDriver, cls).__new__(cls)
+            cls.instance.__initialized = False
+        return cls.instance
 
     def load_binary_for_triton(self, name, binary, metadata, device):
         """Adapt vendor loaders once, without changing their native ABI.
