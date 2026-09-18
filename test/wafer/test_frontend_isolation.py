@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import triton
@@ -33,6 +34,11 @@ def loop_kernel(out):
 def non_power_of_two(out):
     i = tl.arange(0, 3)
     tl.store(out + i, i.to(tl.float32))
+
+
+@triton.jit
+def scalar_copy_kernel(src, out):
+    tl.store(out, tl.load(src))
 
 
 @triton.jit
@@ -82,6 +88,57 @@ def test_original_dicp_bindings_and_linalg_options():
         bindings.add_triton_to_linalg(pm, *[i == selected for i in range(5)])
         pipelines.add(pm.get_pipeline_str())
     assert len(pipelines) == 6
+
+
+@pytest.mark.parametrize("ascend", [False, True])
+def test_dicp_linalg_consumes_fold_guard(ascend):
+    from triton._C.libtriton import dicp_triton
+
+    # Bare scalar pointers exercise the zero-offset AddPtr rewrite that used
+    # to fight folding. Cover both raw modules and the Ascend frontend marker.
+    module = make_module(scalar_copy_kernel, ascend, {"src": "*fp32", "out": "*fp32"})
+    module.set_attr("test.preserved", ir.builder(module.context).get_unit_attr())
+    dicp_triton.load_dialects(module.context)
+    dicp_triton.ir.load_dialects(module.context)
+    pm = ir.pass_manager(module.context)
+    dicp_triton.passes.ttir.add_triton_to_linalg(pm, False, False, False, False, False)
+    pm.run(module)
+    text = str(module)
+    assert "dicp.disable_addptr_fold" not in text
+    assert "test.preserved" in text
+    assert "func.func" in text and "memref.load" in text
+    assert "tt.load" not in text and "tt.store" not in text
+
+
+@pytest.mark.parametrize("ascend", [False, True])
+def test_simt_export_consumes_only_fold_guard(ascend, monkeypatch):
+    from triton.backends.dicp_triton import npu
+
+    # Execute real IR cleanup and serialization using the isolated build.
+    # Only the external Bisheng invocation is replaced, so no NPU is required.
+    module = make_module(scalar_copy_kernel, ascend, {"src": "*fp32", "out": "*fp32"})
+    module.set_attr("test.preserved", ir.builder(module.context).get_unit_attr())
+    original = str(module)
+    captured = []
+
+    def compile_stub(command, **kwargs):
+        text = Path(command[1]).read_text()
+        captured.append(text)
+        assert "dicp.disable_addptr_fold" not in text
+        assert "test.preserved" in text
+        assert "tt.load" in text and "tt.store" in text
+        # Preserve the kernel body; cleanup is restricted to the module marker.
+        assert text[text.index("tt.func"):] == original[original.index("tt.func"):]
+        Path(command[command.index("-o") + 1] + ".o").write_bytes(b"test-binary")
+        return SimpleNamespace(stderr=b"")
+
+    monkeypatch.setattr(npu, "_get_npucompiler_path", lambda: ("bisheng-test-stub", {}))
+    monkeypatch.setattr(npu, "triton_enable_libdevice_simt", lambda: False)
+    monkeypatch.setattr(npu.subprocess, "run", compile_stub)
+    options = npu.NPUOptions(force_simt_only=True)
+    result = npu.ttir_to_npubin(module, {"target": GPUTarget("ascend", "Ascend910B", 32)}, options)
+    assert result == b"test-binary"
+    assert len(captured) == 1
 
 
 @pytest.mark.parametrize("target", ["wafer", "wafer-cache-before-tle", "wafer-cache-after-tle", "ascend", "ascend-dsl"])

@@ -187,6 +187,11 @@ ModeAndPipes GetSyncBlockModeAndPipes(MLIRContext *ctx,
 // =============================================================================
 
 void init_dicp_ir(py::module &&m) {
+  m.def("clear_addptr_fold_guard", [](ModuleOp module) {
+    // SIMT-only compilation bypasses TritonToLinalg's scope-exit cleanup.
+    module->removeAttr("dicp.disable_addptr_fold");
+  });
+
   // --- AffineExpr bindings ---
   auto affineExprClass =
       py::class_<AffineExpr>(m, "affine_expr", py::module_local());

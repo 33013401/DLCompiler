@@ -45,6 +45,7 @@
 
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/Twine.h"
@@ -789,6 +790,11 @@ void TritonToLinalgPass::runOnOperation() {
   // Keep AddPtr folding from undoing LoadStoreCanonicalizer's rewrites when
   // using the shared frontend profile, just as for Ascend-generated modules.
   moduleOp->setAttr("dicp.disable_addptr_fold", UnitAttr::get(&getContext()));
+  // This guard is internal to Triton lowering, not part of the Ascend IR ABI.
+  // Keep it for all rewrites below, then consume it even on an early return.
+  auto cleanupFoldGuard = llvm::make_scope_exit([&] {
+    moduleOp->removeAttr("dicp.disable_addptr_fold");
+  });
 
   // Check if the kernel contains tl.dot. Without tl.dot,
   // the kernel would be pure AIV kernel.
