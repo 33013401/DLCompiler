@@ -123,7 +123,7 @@ def alloc(
 ) -> tl.tensor:
     if isinstance(value, tl.tensor):
         assert value.numel.value == 1, "only accepts size-1 tensor"
-        value = tl_semantic.TritonSemantic(builder).cast(value, dtype)
+        value = tl_semantic.cast(value, dtype, builder)
     else:
         if dtype is None:
             raise ValueError("dtype must be specified when value is not a tensor")
@@ -136,8 +136,7 @@ def alloc(
     if len(shape) == 0:
         return value
     ret_ty = tl.block_type(value.dtype, shape)
-    # Triton 3.5 takes the result IR type first, then the scalar value.
-    x = tl.tensor(builder.create_splat(ret_ty.to_ir(builder), value.handle), ret_ty)
+    x = tl.tensor(builder.create_splat(value.handle, shape), ret_ty)
     if layout is not None:
         builder.create_annotation_mark(
             x.handle, "layout", builder.get_string_attr(str(layout))

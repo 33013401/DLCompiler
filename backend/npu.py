@@ -1007,9 +1007,6 @@ def linalg_to_bin_enable_npu_compile_A2_A3(linalg: str, metadata, opt):
 
 
 def ttir_to_npubin(mod, metadata, opt):
-    # The local lowering guard must not cross the external compiler boundary.
-    # This path bypasses TritonToLinalg, which consumes it on the normal path.
-    dicp_triton.ir.clear_addptr_fold_guard(mod)
     ttir_code = str(mod)
     metadata = _parse_ttir_metadata(ttir_code, metadata)
     with tempfile.TemporaryDirectory() as tmpdir:

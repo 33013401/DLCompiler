@@ -16,13 +16,13 @@ def sha256(path):
 def read_manifest(path):
     path = Path(path).resolve()
     data = json.loads(path.read_text())
-    if data.get("schema") != 1 or data.get("layout") != "isolated-frontend-tools":
+    if data.get("schema") != 2 or data.get("layout") != "wafer-only-frontend-tools":
         raise RuntimeError(f"Not an isolated Wafer build manifest: {path}")
     if data["frontend"]["source"] == data["tools"]["source"]:
         raise RuntimeError("Frontend and tools must use separate Triton source trees")
     if data["frontend"]["triton_commit"] != data["tools"]["triton_commit"]:
         raise RuntimeError("Frontend and tools have different Triton pins")
-    for name in ("libtriton.so", "dicp_opt", "FileCheck", "wafer-opt", "libvr.a"):
+    for name in ("libtriton.so", "FileCheck", "wafer-opt", "libvr.a"):
         entry = data["artifacts"][name]
         if not Path(entry["path"]).is_file() or sha256(entry["path"]) != entry["sha256"]:
             raise RuntimeError(f"Missing or changed build artifact: {name}")

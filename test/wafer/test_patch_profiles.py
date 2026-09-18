@@ -135,7 +135,7 @@ def test_force_validates_patches_before_discarding_edits(triton_source, tmp_path
     catalog = config_root / "profiles.json"
     catalog.write_text(json.dumps({
         "triton_commit": profiles.git(source, "rev-parse", "HEAD").decode().strip(),
-        "profiles": {"ascend": ["invalid.patch"]},
+        "profiles": {"ascend": ["patch/triton/invalid.patch"]},
     }))
     monkeypatch.setattr(profiles, "ROOT", config_root)
     monkeypatch.setattr(profiles, "CATALOG", catalog)

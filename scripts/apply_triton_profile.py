@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "patch/triton/profiles/profiles.json"
+CATALOG = ROOT / "third_party/wafer/patches/triton/profiles.json"
 FORCE_EFFECTS = (
     "--force discards ALL uncommitted changes to tracked files in the selected "
     "Triton source, including staged edits, edits outside the patch set and any "
@@ -61,7 +61,7 @@ def apply_profile(source, profile, check=False, force=False):
     base = catalog["triton_commit"]
     if git(source, "rev-parse", "HEAD").decode().strip() != base:
         raise RuntimeError(f"{profile} requires Triton {base}: {source}")
-    patches = [ROOT / "patch/triton" / p for p in catalog["profiles"][profile]]
+    patches = [ROOT / p for p in catalog["profiles"][profile]]
     identity = hashlib.sha256()
     for path in patches:
         identity.update(path.relative_to(ROOT).as_posix().encode() + b"\0")

@@ -43,10 +43,11 @@ check_npu
 
 
 if [[ $apply_patch == true ]]; then
-    # Keep the Ascend patch set independent of the optional Wafer build.
+    # do dangerous stuff
     echo "Apply triton patch"
-    python3 "$TRITON_PLUGIN_DIRS/scripts/apply_triton_profile.py" \
-        --source "$TRITON_PLUGIN_DIRS/third_party/triton" --profile ascend
+    cd $TRITON_PLUGIN_DIRS/third_party/triton/
+    git checkout .
+    ls $TRITON_PLUGIN_DIRS/patch/triton/*.patch | xargs -n1 git apply
     if [ $? -ne 0 ]; then
         echo "Error: triton git apply failed." >&2
         exit 1
@@ -55,7 +56,7 @@ fi
 
 notify_apply_patch() {
     if [[ $apply_patch == true ]]; then
-        echo "已核验 Ascend 显式补丁清单；没有清空源码改动或应用 Wafer 补丁。"
+        echo "编译前先清空了third_party源码改动, 然后执行了apply patch/*.patch, 请检查正确性!"
     else
         echo "编译前没有执行apply patch/*.patch, 请检查正确性!"
     fi

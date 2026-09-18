@@ -91,12 +91,10 @@ private:
   splatAndLoadScenario(MemAccOpTy op, int rank,
                        PatternRewriter &rewriter) const;
 
-  // The four supported operation types define this member template in the
-  // .cpp file. A deleted primary declaration makes GCC reject those calls.
   template <typename... Args>
   MemAccOpTy createMemAccOp(MemAccOpTy op, Value ptrToAccess, Location loc,
                             PatternRewriter &rewriter,
-                            Args &&...args) const;
+                            Args &&...args) const = delete;
 
   const llvm::DenseMap<Value, PtrOffsetInfo> &offsetMap;
   const llvm::SmallDenseMap<Value, bool> &fromTensorArg;
