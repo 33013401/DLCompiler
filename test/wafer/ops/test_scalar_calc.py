@@ -22,7 +22,7 @@ import torch
 import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
-import triton.language.extra.deeplink.cann.libdevice as libdevice
+from triton.language.extra import libdevice
 import pytest
 import test_common
 

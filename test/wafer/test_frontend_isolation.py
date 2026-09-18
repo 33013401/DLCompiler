@@ -48,6 +48,14 @@ def member_slice_kernel(out):
     tl.store(out + tl.arange(0, 16), y)
 
 
+@triton.jit
+def bounded_slice_kernel(out):
+    x = tl.arange(0, 16).to(tl.float32)
+    left = x[:8]
+    right = x[8:]
+    tl.store(out + tl.arange(0, 8)[:, None], (left + right)[:, None])
+
+
 def make_module(fn, signature=None, constexprs=None):
     backend = WaferBackend(GPUTarget("wafer", "tx81", 32))
     options = backend.parse_options({})
@@ -72,7 +80,7 @@ def test_package_has_no_original_dicp_or_cann():
     assert "tt.load" in text and "tt.store" in text
 
 
-@pytest.mark.parametrize("target", ["wafer", "wafer-cache-before-tle", "wafer-cache-after-tle"])
+@pytest.mark.parametrize("target", ["wafer", "wafer-cache-before-tle", "wafer-cache-after-tle", "wafer-slices"])
 def test_codegen_in_separate_processes(target):
     result = subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), target],
@@ -137,6 +145,14 @@ def test_tle_text_can_enter_separate_tools(tmp_path):
 
 if __name__ == "__main__":
     assert wafer.build_role == "frontend"
+    if sys.argv[1] == "wafer-slices":
+        import triton.language.extra.wafer.slicing
+
+        text = str(make_module(bounded_slice_kernel))
+        assert text.count('"dsa.extract_slice"') == 2
+        assert "tt.expand_dims" in text
+        assert not any(".deeplink.cann" in name for name in sys.modules)
+        sys.exit(0)
     if sys.argv[1].startswith("wafer-cache-"):
         from triton.runtime.cache import triton_key
 

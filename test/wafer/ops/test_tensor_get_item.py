@@ -2,10 +2,8 @@ import torch
 import torch_txda  # noqa: F401
 import triton
 import triton.language as tl
-# Bounded tensor slices are a DICP DSL extension, not an upstream tl.tensor
-# feature. Import its registration explicitly instead of relying on another
-# test or a compiler-cache scan to import it incidentally.
-import triton.language.extra.deeplink.cann.extension as dl  # noqa: F401
+# Enable Wafer bounded tensor slicing backed by TLE DSA operations.
+import triton.language.extra.wafer.slicing  # noqa: F401
 
 
 @triton.jit

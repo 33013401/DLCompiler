@@ -3,7 +3,7 @@ import torch_txda  # noqa: F401
 
 import triton
 import triton.language as tl
-import triton.language.extra.deeplink.cann.extension as dl
+from triton.experimental.tle.language import dsa as dl
 
 
 @triton.jit
